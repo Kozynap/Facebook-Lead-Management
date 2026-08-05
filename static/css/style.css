@@ -522,7 +522,6 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
     align-items: center;
     padding: 16px;
     gap: 24px;
-    overflow-x: auto;
   }
   .brand { flex-shrink: 0; }
   .sidebar-nav {
@@ -530,7 +529,8 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
     flex-direction: row;
     overflow-x: auto;
     white-space: nowrap;
-    flex: none;
+    flex: 1 1 auto;
+    min-width: 0;
   }
   .nav-item {
     border-left: none;
