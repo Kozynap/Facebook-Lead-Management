@@ -311,11 +311,27 @@
 
   function renderClientTracking(campaignLeads) {
     const content = el("#content");
+    const downloadBtn = create("button", {
+      class: "btn btn-outline",
+      onclick: downloadTrackingExcel,
+    }, [text("Download Excel")]);
+
     const panel = create("div", { class: "panel" }, [
-      create("h3", {}, [text("Client Tracking")]),
+      create("div", { class: "panel-header-row" }, [
+        create("h3", {}, [text("Client Tracking")]),
+        downloadBtn,
+      ]),
       create("div", { class: "table-scroll" }, [buildTrackingTable(campaignLeads)]),
     ]);
     content.appendChild(panel);
+  }
+
+  function downloadTrackingExcel() {
+    const params = new URLSearchParams({
+      campaign: state.selectedCampaign || "",
+      month: state.selectedMonth,
+    });
+    window.location.href = `/api/export/tracking?${params.toString()}`;
   }
 
   function applyStatusBadgeClass(badge, status) {

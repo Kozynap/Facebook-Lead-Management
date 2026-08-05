@@ -1,7 +1,11 @@
+import io
 import os
 from datetime import datetime
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_file
+from openpyxl import Workbook
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
 
 import db
 import importer
@@ -57,6 +61,52 @@ def api_meta():
 @app.route("/api/leads")
 def api_leads():
     return jsonify(db.get_all_leads())
+
+
+@app.route("/api/export/tracking")
+def export_tracking():
+    campaign = request.args.get("campaign", "")
+    month = request.args.get("month", "all")
+
+    leads = db.get_all_leads()
+    filtered = [
+        l for l in leads
+        if (not campaign or l["campaign_name"] == campaign)
+        and (month == "all" or l["created_month"] == month)
+    ]
+
+    headers = ["Lead ID", "Full Name", "Email", "Phone", "Street Address", "Status", "Remarks"]
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Client Tracking"
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    ws.freeze_panes = "A2"
+
+    for l in filtered:
+        ws.append([l["id"], l["full_name"], l["email"], l["phone"], l["street_address"], l["status"], l["remarks"]])
+
+    widths = [len(h) for h in headers]
+    for l in filtered:
+        for i, val in enumerate([l["id"], l["full_name"], l["email"], l["phone"], l["street_address"], l["status"], l["remarks"]]):
+            widths[i] = max(widths[i], len(str(val or "")))
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = min(w + 2, 45)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    name_bits = [campaign or "all-campaigns", month if month != "all" else "all-months"]
+    filename = "client-tracking_" + "_".join(b.strip().replace(" ", "-") for b in name_bits) + ".xlsx"
+
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 @app.route("/api/upload", methods=["POST"])
