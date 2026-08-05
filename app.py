@@ -23,9 +23,24 @@ def _display(iso_str):
         return iso_str
 
 
+def _asset_version(*rel_parts):
+    """File mtime used as a cache-busting query param, so a browser can
+    never serve a stale static/js or static/css file against newer HTML."""
+    path = os.path.join(BASE_DIR, "static", *rel_parts)
+    try:
+        return str(int(os.path.getmtime(path)))
+    except OSError:
+        return "0"
+
+
 @app.route("/")
 def index():
-    return render_template("index.html", status_options=db.STATUS_OPTIONS)
+    return render_template(
+        "index.html",
+        status_options=db.STATUS_OPTIONS,
+        css_version=_asset_version("css", "style.css"),
+        js_version=_asset_version("js", "app.js"),
+    )
 
 
 @app.route("/api/meta")
