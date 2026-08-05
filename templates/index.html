@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Facebook Leads Dashboard</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<script>window.STATUS_OPTIONS = {{ status_options | tojson }};</script>
+
+<header class="topbar">
+  <div class="topbar-meta">
+    <div class="meta-item"><span class="meta-label">Last Lead Created</span><span class="meta-value" id="lastCreated">—</span></div>
+    <div class="meta-item"><span class="meta-label">Data Last Updated</span><span class="meta-value" id="lastUpdated">—</span></div>
+  </div>
+  <h1 class="topbar-title">Facebook Leads Dashboard</h1>
+  <div class="topbar-actions">
+    <button id="uploadBtn" class="btn btn-primary">Upload ZIP files</button>
+  </div>
+</header>
+
+<div class="filterbar">
+  <label for="monthFilter">Month</label>
+  <select id="monthFilter">
+    <option value="all">All months</option>
+  </select>
+  <span id="leadCountSummary" class="lead-count-summary"></span>
+</div>
+
+<nav id="campaignTabs" class="tabs campaign-tabs"></nav>
+
+<main id="content" class="content">
+  <div class="empty-state" id="emptyState">
+    <p>No leads yet. Upload one or more ZIP exports to get started.</p>
+  </div>
+</main>
+
+<div id="uploadModal" class="modal-backdrop hidden">
+  <div class="modal">
+    <h2>Upload lead exports</h2>
+    <p class="modal-hint">Select one or more <code>.zip</code> files exported from Facebook Lead Ads. New leads are added and existing leads are refreshed — any Status/Remarks you've already set are kept.</p>
+    <input type="file" id="zipInput" accept=".zip" multiple>
+    <div id="uploadResult" class="upload-result"></div>
+    <div class="modal-actions">
+      <button id="cancelUpload" class="btn btn-ghost">Close</button>
+      <button id="submitUpload" class="btn btn-primary">Upload</button>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
