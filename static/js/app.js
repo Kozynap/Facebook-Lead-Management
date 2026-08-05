@@ -1,14 +1,9 @@
 (function () {
   "use strict";
 
-  const STATUS_COLORS = {
-    "New":             { bg: "#dbeafe", text: "#1e40af" },
-    "Follow up":       { bg: "#fef3c7", text: "#92400e" },
-    "Payment Pending": { bg: "#ede9fe", text: "#5b21b6" },
-    "Dead":            { bg: "#fee2e2", text: "#991b1b" },
-    "Converted":       { bg: "#dcfce7", text: "#166534" },
-  };
-  const STATUS_OPTIONS = window.STATUS_OPTIONS || Object.keys(STATUS_COLORS);
+  const STATUS_OPTIONS = window.STATUS_OPTIONS || ["New", "Follow up", "Payment Pending", "Dead", "Converted"];
+
+  const slug = (s) => s.replace(/\s+/g, "-");
 
   const state = {
     leads: [],
@@ -44,6 +39,19 @@
     return res.json();
   }
 
+  let toastTimer = null;
+  function showToast(message) {
+    const toast = el("#saveToast");
+    toast.textContent = message;
+    toast.classList.remove("hidden");
+    requestAnimationFrame(() => toast.classList.add("show"));
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast.classList.remove("show");
+      setTimeout(() => toast.classList.add("hidden"), 250);
+    }, 1600);
+  }
+
   async function loadAll() {
     const [meta, leads] = await Promise.all([
       fetchJSON("/api/meta"),
@@ -61,8 +69,13 @@
   function render() {
     el("#lastCreated").textContent = state.meta.last_created || "—";
     el("#lastUpdated").textContent = state.meta.last_updated || "—";
+    el("#kpiCampaignCount").textContent = state.meta.campaigns.length;
+    el("#footerTotalLeads").textContent = state.leads.length;
+    el("#footerPeriod").textContent = monthLabel(state.selectedMonth);
+
     renderMonthFilter();
-    renderCampaignTabs();
+    renderSidebarNav();
+    renderSubTabBar();
     renderContent();
   }
 
@@ -78,32 +91,52 @@
     state.selectedMonth = sel.value;
   }
 
-  function renderCampaignTabs() {
-    const nav = el("#campaignTabs");
+  function renderSidebarNav() {
+    const nav = el("#campaignNav");
     nav.innerHTML = "";
-    const empty = el("#emptyState");
+    const emptyState = el("#emptyState");
+    const filterbar = document.querySelector(".filterbar");
+    const subTabs = el("#subTabs");
 
     if (!state.meta.campaigns.length) {
-      empty.classList.remove("hidden");
-      el("#content").querySelectorAll(".panel, .subtabs").forEach((n) => n.remove());
+      nav.appendChild(create("div", { class: "nav-empty" }, [text("No campaigns yet")]));
+      emptyState.classList.remove("hidden");
+      filterbar.classList.add("hidden");
+      subTabs.classList.add("hidden");
+      el("#pageTitle").textContent = "Facebook Leads";
+      el("#content").querySelectorAll(".panel").forEach((n) => n.remove());
       return;
     }
-    empty.classList.add("hidden");
+    emptyState.classList.add("hidden");
+    filterbar.classList.remove("hidden");
+    subTabs.classList.remove("hidden");
 
-    state.meta.campaigns.forEach((c) => {
+    state.meta.campaigns.forEach((c, i) => {
       const btn = create(
         "button",
         {
-          class: "tab-btn" + (c.name === state.selectedCampaign ? " active" : ""),
+          class: "nav-item" + (c.name === state.selectedCampaign ? " active" : ""),
           onclick: () => {
             state.selectedCampaign = c.name;
             state.adNameFilter = "all";
             render();
           },
         },
-        [text(c.name), create("span", { class: "tab-count" }, [text(`(${c.count})`)])]
+        [
+          create("span", { class: "nav-num" }, [text(String(i + 1).padStart(2, "0"))]),
+          create("span", { class: "nav-label" }, [text(c.name)]),
+          create("span", { class: "nav-count num" }, [text(String(c.count))]),
+        ]
       );
       nav.appendChild(btn);
+    });
+
+    el("#pageTitle").textContent = state.selectedCampaign;
+  }
+
+  function renderSubTabBar() {
+    document.querySelectorAll("#subTabs .tab-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.subtab === state.selectedSubTab);
     });
   }
 
@@ -117,23 +150,11 @@
 
   function renderContent() {
     const content = el("#content");
-    content.querySelectorAll(".subtabs, .panel").forEach((n) => n.remove());
+    content.querySelectorAll(".panel").forEach((n) => n.remove());
     if (!state.selectedCampaign) return;
 
     const campaignLeads = leadsForCampaign(state.selectedCampaign, state.selectedMonth);
-    el("#leadCountSummary").textContent = `${campaignLeads.length} lead${campaignLeads.length === 1 ? "" : "s"} in "${state.selectedCampaign}"`;
-
-    const subtabs = create("div", { class: "subtabs" }, [
-      create("button", {
-        class: "subtab-btn" + (state.selectedSubTab === "dashboard" ? " active" : ""),
-        onclick: () => { state.selectedSubTab = "dashboard"; render(); },
-      }, [text("Dashboard")]),
-      create("button", {
-        class: "subtab-btn" + (state.selectedSubTab === "tracking" ? " active" : ""),
-        onclick: () => { state.selectedSubTab = "tracking"; render(); },
-      }, [text("Client Tracking")]),
-    ]);
-    content.appendChild(subtabs);
+    el("#kpiLeadsInView").textContent = campaignLeads.length;
 
     if (state.selectedSubTab === "dashboard") {
       renderDashboard(campaignLeads);
@@ -155,7 +176,7 @@
     const rows = [...counts.entries()].sort((a, b) => b[1] - a[1]);
 
     const chartPanel = create("div", { class: "panel" }, [
-      create("h3", {}, [text(`Leads by Ad (${monthLabel(state.selectedMonth)})`)]),
+      create("h3", {}, [text(`Leads by Ad — ${monthLabel(state.selectedMonth)}`)]),
       create("div", { class: "dashboard-grid" }, [
         create("div", { class: "chart-wrap" }, [create("canvas", { id: "adChart" })]),
         create("div", { class: "table-scroll" }, [buildCountTable(rows)]),
@@ -171,7 +192,14 @@
     const clientPanel = create("div", { class: "panel" }, [
       create("div", { class: "panel-header-row" }, [
         create("h3", {}, [text("Client Details")]),
-        buildAdNameFilterSelect(adNames),
+        create("div", { style: "display:flex; align-items:flex-end; gap:14px;" }, [
+          buildAdNameFilterField(adNames),
+          create("a", {
+            href: "#",
+            class: "filter-clear",
+            onclick: (e) => { e.preventDefault(); state.adNameFilter = "all"; renderContent(); },
+          }, [text("Clear")]),
+        ]),
       ]),
       create("div", { class: "table-scroll" }, [buildClientDetailsTable(filtered)]),
     ]);
@@ -196,14 +224,14 @@
     rows.forEach(([name, count]) => {
       tbody.appendChild(create("tr", {}, [
         create("td", { class: "wrap" }, [text(name)]),
-        create("td", {}, [text(String(count))]),
+        create("td", { class: "num" }, [text(String(count))]),
       ]));
     });
     table.appendChild(tbody);
     return table;
   }
 
-  function buildAdNameFilterSelect(adNames) {
+  function buildAdNameFilterField(adNames) {
     const sel = create("select", {
       onchange: (e) => { state.adNameFilter = e.target.value; renderContent(); },
     });
@@ -212,7 +240,10 @@
       sel.appendChild(create("option", { value: name }, [text(name)]));
     });
     sel.value = state.adNameFilter;
-    return sel;
+    return create("div", { class: "filter-field" }, [
+      create("label", {}, [text("Ad Name")]),
+      sel,
+    ]);
   }
 
   function buildClientDetailsTable(leads) {
@@ -226,10 +257,10 @@
     }
     leads.forEach((l) => {
       tbody.appendChild(create("tr", {}, [
-        create("td", {}, [text(l.id)]),
+        create("td", { class: "id-cell" }, [text(l.id)]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
         create("td", {}, [text(l.email)]),
-        create("td", {}, [text(l.phone)]),
+        create("td", { class: "phone-cell" }, [text(l.phone)]),
         create("td", { class: "wrap" }, [text(l.street_address)]),
       ]));
     });
@@ -244,6 +275,7 @@
       chartInstance.destroy();
       chartInstance = null;
     }
+    const monoFont = { family: "'IBM Plex Mono', monospace", size: 11 };
     chartInstance = new Chart(ctx, {
       type: "bar",
       data: {
@@ -251,9 +283,9 @@
         datasets: [{
           label: "Leads",
           data: rows.map(([, count]) => count),
-          backgroundColor: "#2563eb",
-          borderRadius: 4,
-          maxBarThickness: 46,
+          backgroundColor: "#BB4B25",
+          borderRadius: 1,
+          maxBarThickness: 44,
         }],
       },
       options: {
@@ -261,8 +293,15 @@
         maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
-          y: { beginAtZero: true, ticks: { precision: 0 } },
-          x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 0 } },
+          y: {
+            beginAtZero: true,
+            ticks: { precision: 0, font: monoFont, color: "#726C62" },
+            grid: { color: "#E1D8C5" },
+          },
+          x: {
+            ticks: { autoSkip: false, maxRotation: 45, minRotation: 0, font: { family: "'Inter', sans-serif", size: 11 }, color: "#726C62" },
+            grid: { display: false },
+          },
         },
       },
     });
@@ -279,10 +318,8 @@
     content.appendChild(panel);
   }
 
-  function styleStatusSelect(selectNode, status) {
-    const c = STATUS_COLORS[status] || STATUS_COLORS["New"];
-    selectNode.style.background = c.bg;
-    selectNode.style.color = c.text;
+  function applyStatusBadgeClass(badge, status) {
+    badge.className = "status-badge status-" + slug(status);
   }
 
   function buildTrackingTable(leads) {
@@ -301,7 +338,11 @@
         statusSelect.appendChild(create("option", { value: opt }, [text(opt)]));
       });
       statusSelect.value = l.status;
-      styleStatusSelect(statusSelect, l.status);
+
+      const dot = create("span", { class: "dot" });
+      const badge = create("span", { class: "status-badge" }, [dot, statusSelect]);
+      applyStatusBadgeClass(badge, l.status);
+
       statusSelect.addEventListener("change", async () => {
         const newStatus = statusSelect.value;
         try {
@@ -311,11 +352,12 @@
             body: JSON.stringify({ status: newStatus }),
           });
           l.status = newStatus;
-          styleStatusSelect(statusSelect, newStatus);
+          applyStatusBadgeClass(badge, newStatus);
+          showToast("Status saved");
         } catch (err) {
           alert("Could not save status: " + err.message);
           statusSelect.value = l.status;
-          styleStatusSelect(statusSelect, l.status);
+          applyStatusBadgeClass(badge, l.status);
         }
       });
 
@@ -330,8 +372,7 @@
             body: JSON.stringify({ remarks: val }),
           });
           l.remarks = val;
-          remarksInput.classList.add("saved");
-          setTimeout(() => remarksInput.classList.remove("saved"), 800);
+          showToast("Remarks saved");
         } catch (err) {
           alert("Could not save remarks: " + err.message);
         }
@@ -342,12 +383,12 @@
       });
 
       tbody.appendChild(create("tr", {}, [
-        create("td", {}, [text(l.id)]),
+        create("td", { class: "id-cell" }, [text(l.id)]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
         create("td", {}, [text(l.email)]),
-        create("td", {}, [text(l.phone)]),
+        create("td", { class: "phone-cell" }, [text(l.phone)]),
         create("td", { class: "wrap" }, [text(l.street_address)]),
-        create("td", {}, [statusSelect]),
+        create("td", {}, [badge]),
         create("td", {}, [remarksInput]),
       ]));
     });
@@ -409,16 +450,35 @@
     return d.innerHTML;
   }
 
-  function setupMonthFilter() {
+  function setupFilterBar() {
     el("#monthFilter").addEventListener("change", (e) => {
       state.selectedMonth = e.target.value;
+      el("#footerPeriod").textContent = monthLabel(state.selectedMonth);
       renderContent();
+    });
+    el("#clearMonthFilter").addEventListener("click", (e) => {
+      e.preventDefault();
+      state.selectedMonth = "all";
+      renderMonthFilter();
+      el("#footerPeriod").textContent = monthLabel(state.selectedMonth);
+      renderContent();
+    });
+  }
+
+  function setupSubTabs() {
+    document.querySelectorAll("#subTabs .tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.selectedSubTab = btn.dataset.subtab;
+        renderSubTabBar();
+        renderContent();
+      });
     });
   }
 
   document.addEventListener("DOMContentLoaded", () => {
     setupUploadModal();
-    setupMonthFilter();
+    setupFilterBar();
+    setupSubTabs();
     loadAll().catch((err) => {
       el("#emptyState").classList.remove("hidden");
       el("#emptyState").querySelector("p").textContent = "Failed to load data: " + err.message;

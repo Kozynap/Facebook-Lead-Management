@@ -3,52 +3,107 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Facebook Leads Dashboard</title>
+<title>Kozunap — Facebook Lead Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,340..600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <script>window.STATUS_OPTIONS = {{ status_options | tojson }};</script>
 
-<header class="topbar">
-  <div class="topbar-meta">
-    <div class="meta-item"><span class="meta-label">Last Lead Created</span><span class="meta-value" id="lastCreated">—</span></div>
-    <div class="meta-item"><span class="meta-label">Data Last Updated</span><span class="meta-value" id="lastUpdated">—</span></div>
-  </div>
-  <h1 class="topbar-title">Facebook Leads Dashboard</h1>
-  <div class="topbar-actions">
-    <button id="uploadBtn" class="btn btn-primary">Upload ZIP files</button>
-  </div>
-</header>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-name">Kozunap</div>
+      <div class="brand-tag">Facebook Lead Ledger</div>
+    </div>
 
-<div class="filterbar">
-  <label for="monthFilter">Month</label>
-  <select id="monthFilter">
-    <option value="all">All months</option>
-  </select>
-  <span id="leadCountSummary" class="lead-count-summary"></span>
+    <nav class="sidebar-nav" id="campaignNav">
+      <div class="nav-empty">No campaigns yet</div>
+    </nav>
+
+    <div class="sidebar-footer" id="sidebarFooter">
+      <div class="footer-stat">
+        <span class="footer-stat-label">Total leads</span>
+        <span class="footer-stat-value num" id="footerTotalLeads">0</span>
+      </div>
+      <div class="footer-stat">
+        <span class="footer-stat-label">Period</span>
+        <span class="footer-stat-value" id="footerPeriod">All months</span>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="page-header">
+      <div class="page-header-top">
+        <div>
+          <div class="eyebrow">Book of Record</div>
+          <h1 class="page-title" id="pageTitle">Facebook Leads</h1>
+        </div>
+        <button id="uploadBtn" class="btn btn-primary">Upload ZIP files</button>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-value" id="lastCreated">—</div>
+          <div class="kpi-label">Last Lead Created</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-value" id="lastUpdated">—</div>
+          <div class="kpi-label">Data Last Updated</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-value num" id="kpiLeadsInView">0</div>
+          <div class="kpi-label">Leads In View</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-value num" id="kpiCampaignCount">0</div>
+          <div class="kpi-label">Campaigns Tracked</div>
+        </div>
+      </div>
+    </header>
+
+    <div class="filterbar">
+      <div class="filter-field">
+        <label for="monthFilter">Month</label>
+        <select id="monthFilter">
+          <option value="all">All months</option>
+        </select>
+      </div>
+      <a href="#" id="clearMonthFilter" class="filter-clear">Clear</a>
+    </div>
+
+    <nav class="tabs" id="subTabs">
+      <button class="tab-btn active" data-subtab="dashboard">Dashboard</button>
+      <button class="tab-btn" data-subtab="tracking">Client Tracking</button>
+    </nav>
+
+    <div id="content" class="content">
+      <div class="empty-state" id="emptyState">
+        <p>No leads yet. Upload one or more ZIP exports to get started.</p>
+      </div>
+    </div>
+  </main>
 </div>
-
-<nav id="campaignTabs" class="tabs campaign-tabs"></nav>
-
-<main id="content" class="content">
-  <div class="empty-state" id="emptyState">
-    <p>No leads yet. Upload one or more ZIP exports to get started.</p>
-  </div>
-</main>
 
 <div id="uploadModal" class="modal-backdrop hidden">
   <div class="modal">
+    <div class="eyebrow">New Import</div>
     <h2>Upload lead exports</h2>
     <p class="modal-hint">Select one or more <code>.zip</code> files exported from Facebook Lead Ads. New leads are added and existing leads are refreshed — any Status/Remarks you've already set are kept.</p>
     <input type="file" id="zipInput" accept=".zip" multiple>
     <div id="uploadResult" class="upload-result"></div>
     <div class="modal-actions">
-      <button id="cancelUpload" class="btn btn-ghost">Close</button>
+      <button id="cancelUpload" class="btn btn-outline">Close</button>
       <button id="submitUpload" class="btn btn-primary">Upload</button>
     </div>
   </div>
 </div>
+
+<div id="saveToast" class="save-toast hidden"></div>
 
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
