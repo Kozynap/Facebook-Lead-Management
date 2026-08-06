@@ -20,8 +20,7 @@
       <div class="brand-tag">Facebook Lead Ledger</div>
     </div>
 
-    <nav class="sidebar-nav" id="campaignNav">
-      <div class="nav-empty">No campaigns yet</div>
+    <nav class="sidebar-nav" id="sidebarNav">
     </nav>
 
     <div class="sidebar-footer" id="sidebarFooter">
@@ -60,20 +59,32 @@
           <div class="kpi-label">Leads In View</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-value num" id="kpiCampaignCount">0</div>
-          <div class="kpi-label">Campaigns Tracked</div>
+          <div class="kpi-value num" id="kpiUnassigned">0</div>
+          <div class="kpi-label">Unmapped Campaigns</div>
         </div>
       </div>
     </header>
 
-    <div class="filterbar">
+    <div class="filterbar" id="filterBar">
       <div class="filter-field">
         <label for="monthFilter">Month</label>
         <select id="monthFilter">
           <option value="all">All months</option>
         </select>
       </div>
-      <a href="#" id="clearMonthFilter" class="filter-clear">Clear</a>
+      <div class="filter-field">
+        <label for="campaignFilter">Campaign</label>
+        <select id="campaignFilter">
+          <option value="all">All campaigns</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="statusFilter">Status</label>
+        <select id="statusFilter">
+          <option value="all">All statuses</option>
+        </select>
+      </div>
+      <a href="#" id="clearFilters" class="filter-clear">Clear</a>
     </div>
 
     <nav class="tabs" id="subTabs">

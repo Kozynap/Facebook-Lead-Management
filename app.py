@@ -53,7 +53,8 @@ def api_meta():
         "last_created": _display(db.get_last_created()),
         "last_updated": _display(db.get_meta("last_upload_at")),
         "months": db.get_distinct_months(),
-        "campaigns": db.get_distinct_campaigns(),
+        "areas": db.get_area_counts(),
+        "unassigned_campaign_count": db.get_unassigned_campaign_count(),
         "status_options": db.STATUS_OPTIONS,
     })
 
@@ -63,19 +64,43 @@ def api_leads():
     return jsonify(db.get_all_leads())
 
 
+@app.route("/api/campaign-map")
+def api_campaign_map_get():
+    return jsonify(db.get_campaigns_with_area())
+
+
+@app.route("/api/campaign-map", methods=["POST"])
+def api_campaign_map_set():
+    body = request.get_json(force=True, silent=True) or {}
+    campaign = body.get("campaign")
+    area = body.get("area") or None
+
+    if not campaign:
+        return jsonify({"error": "campaign is required"}), 400
+    if area is not None and area not in db.AREAS:
+        return jsonify({"error": "Invalid area."}), 400
+
+    db.set_campaign_area(campaign, area)
+    return jsonify({"campaign": campaign, "area": area})
+
+
 @app.route("/api/export/tracking")
 def export_tracking():
-    campaign = request.args.get("campaign", "")
+    area = request.args.get("area", "")
     month = request.args.get("month", "all")
+    campaign = request.args.get("campaign", "")
+    status = request.args.get("status", "all")
 
     leads = db.get_all_leads()
     filtered = [
         l for l in leads
-        if (not campaign or l["campaign_name"] == campaign)
+        if (not area or l["area"] == area)
         and (month == "all" or l["created_month"] == month)
+        and (not campaign or l["campaign_name"] == campaign)
+        and (status == "all" or l["status"] == status)
     ]
 
-    headers = ["Lead ID", "Full Name", "Email", "Phone", "Street Address", "Status", "Remarks"]
+    headers = ["Lead ID", "Full Name", "Email", "Phone", "Street Address", "Status", "Attempts Made", "Remarks"]
     wb = Workbook()
     ws = wb.active
     ws.title = "Client Tracking"
@@ -84,12 +109,18 @@ def export_tracking():
         cell.font = Font(bold=True)
     ws.freeze_panes = "A2"
 
+    def row_values(l):
+        return [
+            l["id"], l["full_name"], l["email"], l["phone"], l["street_address"],
+            l["status"], f"Attempt {l['attempts']}", l["remarks"],
+        ]
+
     for l in filtered:
-        ws.append([l["id"], l["full_name"], l["email"], l["phone"], l["street_address"], l["status"], l["remarks"]])
+        ws.append(row_values(l))
 
     widths = [len(h) for h in headers]
     for l in filtered:
-        for i, val in enumerate([l["id"], l["full_name"], l["email"], l["phone"], l["street_address"], l["status"], l["remarks"]]):
+        for i, val in enumerate(row_values(l)):
             widths[i] = max(widths[i], len(str(val or "")))
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = min(w + 2, 45)
@@ -98,7 +129,12 @@ def export_tracking():
     wb.save(buf)
     buf.seek(0)
 
-    name_bits = [campaign or "all-campaigns", month if month != "all" else "all-months"]
+    name_bits = [
+        area or "all-areas",
+        campaign or "all-campaigns",
+        month if month != "all" else "all-months",
+        status if status != "all" else "all-statuses",
+    ]
     filename = "client-tracking_" + "_".join(b.strip().replace(" ", "-") for b in name_bits) + ".xlsx"
 
     return send_file(

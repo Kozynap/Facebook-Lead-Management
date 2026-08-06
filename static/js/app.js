@@ -1,17 +1,20 @@
 (function () {
   "use strict";
 
-  const STATUS_OPTIONS = window.STATUS_OPTIONS || ["New", "Follow up", "Payment Pending", "Dead", "Converted"];
+  const STATUS_OPTIONS = window.STATUS_OPTIONS || ["New", "Follow up", "Warm", "Booked", "Cold"];
+  const NAV_MAPPING = "__mapping__";
 
   const slug = (s) => s.replace(/\s+/g, "-");
 
   const state = {
     leads: [],
-    meta: { months: [], campaigns: [] },
+    meta: { months: [], areas: [], unassigned_campaign_count: 0 },
+    campaignMap: [],
+    selectedNav: null,
     selectedMonth: "all",
-    selectedCampaign: null,
+    selectedCampaign: "all",
+    selectedStatus: "all",
     selectedSubTab: "dashboard",
-    adNameFilter: "all",
   };
 
   let chartInstance = null;
@@ -53,15 +56,17 @@
   }
 
   async function loadAll() {
-    const [meta, leads] = await Promise.all([
+    const [meta, leads, campaignMap] = await Promise.all([
       fetchJSON("/api/meta"),
       fetchJSON("/api/leads"),
+      fetchJSON("/api/campaign-map"),
     ]);
     state.meta = meta;
     state.leads = leads;
+    state.campaignMap = campaignMap;
 
-    if (state.selectedCampaign === null || !meta.campaigns.some((c) => c.name === state.selectedCampaign)) {
-      state.selectedCampaign = meta.campaigns.length ? meta.campaigns[0].name : null;
+    if (state.selectedNav === null && meta.areas.length) {
+      state.selectedNav = meta.areas[0].name;
     }
     render();
   }
@@ -69,141 +74,14 @@
   function render() {
     el("#lastCreated").textContent = state.meta.last_created || "—";
     el("#lastUpdated").textContent = state.meta.last_updated || "—";
-    el("#kpiCampaignCount").textContent = state.meta.campaigns.length;
+    el("#kpiUnassigned").textContent = state.meta.unassigned_campaign_count;
     el("#footerTotalLeads").textContent = state.leads.length;
     el("#footerPeriod").textContent = monthLabel(state.selectedMonth);
 
-    renderMonthFilter();
     renderSidebarNav();
+    renderFilters();
     renderSubTabBar();
     renderContent();
-  }
-
-  function renderMonthFilter() {
-    const sel = el("#monthFilter");
-    const current = state.selectedMonth;
-    sel.innerHTML = "";
-    sel.appendChild(create("option", { value: "all" }, [text("All months")]));
-    state.meta.months.forEach((m) => {
-      sel.appendChild(create("option", { value: m.value }, [text(m.label)]));
-    });
-    sel.value = state.meta.months.some((m) => m.value === current) || current === "all" ? current : "all";
-    state.selectedMonth = sel.value;
-  }
-
-  function renderSidebarNav() {
-    const nav = el("#campaignNav");
-    nav.innerHTML = "";
-    const emptyState = el("#emptyState");
-    const filterbar = document.querySelector(".filterbar");
-    const subTabs = el("#subTabs");
-
-    if (!state.meta.campaigns.length) {
-      nav.appendChild(create("div", { class: "nav-empty" }, [text("No campaigns yet")]));
-      emptyState.classList.remove("hidden");
-      filterbar.classList.add("hidden");
-      subTabs.classList.add("hidden");
-      el("#pageTitle").textContent = "Facebook Leads";
-      el("#content").querySelectorAll(".panel").forEach((n) => n.remove());
-      return;
-    }
-    emptyState.classList.add("hidden");
-    filterbar.classList.remove("hidden");
-    subTabs.classList.remove("hidden");
-
-    state.meta.campaigns.forEach((c, i) => {
-      const btn = create(
-        "button",
-        {
-          class: "nav-item" + (c.name === state.selectedCampaign ? " active" : ""),
-          onclick: () => {
-            state.selectedCampaign = c.name;
-            state.adNameFilter = "all";
-            render();
-          },
-        },
-        [
-          create("span", { class: "nav-num" }, [text(String(i + 1).padStart(2, "0"))]),
-          create("span", { class: "nav-label" }, [text(c.name)]),
-          create("span", { class: "nav-count num" }, [text(String(c.count))]),
-        ]
-      );
-      nav.appendChild(btn);
-    });
-
-    el("#pageTitle").textContent = state.selectedCampaign;
-  }
-
-  function renderSubTabBar() {
-    document.querySelectorAll("#subTabs .tab-btn").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.subtab === state.selectedSubTab);
-    });
-  }
-
-  function leadsForCampaign(campaign, month) {
-    return state.leads.filter((l) => {
-      if (campaign !== null && l.campaign_name !== campaign) return false;
-      if (month !== "all" && l.created_month !== month) return false;
-      return true;
-    });
-  }
-
-  function renderContent() {
-    const content = el("#content");
-    content.querySelectorAll(".panel").forEach((n) => n.remove());
-    if (!state.selectedCampaign) return;
-
-    const campaignLeads = leadsForCampaign(state.selectedCampaign, state.selectedMonth);
-    el("#kpiLeadsInView").textContent = campaignLeads.length;
-
-    if (state.selectedSubTab === "dashboard") {
-      renderDashboard(campaignLeads);
-    } else {
-      renderClientTracking(campaignLeads);
-    }
-  }
-
-  // ---------- Dashboard sub-tab ----------
-
-  function renderDashboard(campaignLeads) {
-    const content = el("#content");
-
-    const counts = new Map();
-    campaignLeads.forEach((l) => {
-      const key = l.ad_name || "(no ad name)";
-      counts.set(key, (counts.get(key) || 0) + 1);
-    });
-    const rows = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-
-    const chartPanel = create("div", { class: "panel" }, [
-      create("h3", {}, [text(`Leads by Ad — ${monthLabel(state.selectedMonth)}`)]),
-      create("div", { class: "dashboard-grid" }, [
-        create("div", { class: "chart-wrap" }, [create("canvas", { id: "adChart" })]),
-        create("div", { class: "table-scroll" }, [buildCountTable(rows)]),
-      ]),
-    ]);
-    content.appendChild(chartPanel);
-
-    drawChart(rows);
-
-    const adNames = [...counts.keys()].sort((a, b) => a.localeCompare(b));
-    const filtered = state.adNameFilter === "all" ? campaignLeads : campaignLeads.filter((l) => (l.ad_name || "(no ad name)") === state.adNameFilter);
-
-    const clientPanel = create("div", { class: "panel" }, [
-      create("div", { class: "panel-header-row" }, [
-        create("h3", {}, [text("Client Details")]),
-        create("div", { style: "display:flex; align-items:flex-end; gap:14px;" }, [
-          buildAdNameFilterField(adNames),
-          create("a", {
-            href: "#",
-            class: "filter-clear",
-            onclick: (e) => { e.preventDefault(); state.adNameFilter = "all"; renderContent(); },
-          }, [text("Clear")]),
-        ]),
-      ]),
-      create("div", { class: "table-scroll" }, [buildClientDetailsTable(filtered)]),
-    ]);
-    content.appendChild(clientPanel);
   }
 
   function monthLabel(value) {
@@ -212,10 +90,199 @@
     return m ? m.label : value;
   }
 
-  function buildCountTable(rows) {
+  // ---------- Sidebar nav ----------
+
+  function selectNav(name) {
+    state.selectedNav = name;
+    state.selectedCampaign = "all";
+    state.selectedStatus = "all";
+    render();
+  }
+
+  function renderSidebarNav() {
+    const nav = el("#sidebarNav");
+    nav.innerHTML = "";
+
+    state.meta.areas.forEach((a, i) => {
+      const btn = create(
+        "button",
+        { class: "nav-item" + (state.selectedNav === a.name ? " active" : ""), onclick: () => selectNav(a.name) },
+        [
+          create("span", { class: "nav-num" }, [text(String(i + 1).padStart(2, "0"))]),
+          create("span", { class: "nav-label" }, [text(a.name)]),
+          create("span", { class: "nav-count num" }, [text(String(a.count))]),
+        ]
+      );
+      nav.appendChild(btn);
+    });
+
+    const mappingChildren = [
+      create("span", { class: "nav-num" }, [text(String(state.meta.areas.length + 1).padStart(2, "0"))]),
+      create("span", { class: "nav-label" }, [text("Campaign-Area Mapping")]),
+    ];
+    if (state.meta.unassigned_campaign_count > 0) {
+      mappingChildren.push(create("span", { class: "nav-badge" }, [text(String(state.meta.unassigned_campaign_count))]));
+    }
+    const mapBtn = create(
+      "button",
+      { class: "nav-item" + (state.selectedNav === NAV_MAPPING ? " active" : ""), onclick: () => selectNav(NAV_MAPPING) },
+      mappingChildren
+    );
+    nav.appendChild(mapBtn);
+
+    el("#pageTitle").textContent =
+      state.selectedNav === NAV_MAPPING ? "Campaign-Area Mapping" : state.selectedNav || "Facebook Leads";
+  }
+
+  // ---------- Filters ----------
+
+  function renderFilters() {
+    const isMapping = state.selectedNav === NAV_MAPPING;
+    const showFilters = !isMapping && state.leads.length > 0;
+    el("#filterBar").classList.toggle("hidden", !showFilters);
+    el("#subTabs").classList.toggle("hidden", !showFilters);
+    if (!showFilters) return;
+
+    const monthSel = el("#monthFilter");
+    const currentMonth = state.selectedMonth;
+    monthSel.innerHTML = "";
+    monthSel.appendChild(create("option", { value: "all" }, [text("All months")]));
+    state.meta.months.forEach((m) => monthSel.appendChild(create("option", { value: m.value }, [text(m.label)])));
+    monthSel.value = state.meta.months.some((m) => m.value === currentMonth) || currentMonth === "all" ? currentMonth : "all";
+    state.selectedMonth = monthSel.value;
+
+    const campaignNames = [...new Set(
+      state.leads.filter((l) => l.area === state.selectedNav).map((l) => l.campaign_name).filter(Boolean)
+    )].sort((a, b) => a.localeCompare(b));
+    const campaignSel = el("#campaignFilter");
+    const currentCampaign = state.selectedCampaign;
+    campaignSel.innerHTML = "";
+    campaignSel.appendChild(create("option", { value: "all" }, [text("All campaigns")]));
+    campaignNames.forEach((name) => campaignSel.appendChild(create("option", { value: name }, [text(name)])));
+    campaignSel.value = campaignNames.includes(currentCampaign) || currentCampaign === "all" ? currentCampaign : "all";
+    state.selectedCampaign = campaignSel.value;
+
+    const statusSel = el("#statusFilter");
+    statusSel.innerHTML = "";
+    statusSel.appendChild(create("option", { value: "all" }, [text("All statuses")]));
+    STATUS_OPTIONS.forEach((s) => statusSel.appendChild(create("option", { value: s }, [text(s)])));
+    statusSel.value = state.selectedStatus;
+  }
+
+  function setupFilterBar() {
+    el("#monthFilter").addEventListener("change", (e) => {
+      state.selectedMonth = e.target.value;
+      el("#footerPeriod").textContent = monthLabel(state.selectedMonth);
+      renderContent();
+    });
+    el("#campaignFilter").addEventListener("change", (e) => {
+      state.selectedCampaign = e.target.value;
+      renderContent();
+    });
+    el("#statusFilter").addEventListener("change", (e) => {
+      state.selectedStatus = e.target.value;
+      renderContent();
+    });
+    el("#clearFilters").addEventListener("click", (e) => {
+      e.preventDefault();
+      state.selectedMonth = "all";
+      state.selectedCampaign = "all";
+      state.selectedStatus = "all";
+      render();
+    });
+  }
+
+  function renderSubTabBar() {
+    document.querySelectorAll("#subTabs .tab-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.subtab === state.selectedSubTab);
+    });
+  }
+
+  function setupSubTabs() {
+    document.querySelectorAll("#subTabs .tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.selectedSubTab = btn.dataset.subtab;
+        renderSubTabBar();
+        renderContent();
+      });
+    });
+  }
+
+  // ---------- Content ----------
+
+  function leadsForView() {
+    return state.leads.filter((l) => {
+      if (l.area !== state.selectedNav) return false;
+      if (state.selectedMonth !== "all" && l.created_month !== state.selectedMonth) return false;
+      if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
+      if (state.selectedStatus !== "all" && l.status !== state.selectedStatus) return false;
+      return true;
+    });
+  }
+
+  function renderContent() {
+    const content = el("#content");
+    content.querySelectorAll(".panel").forEach((n) => n.remove());
+
+    if (state.selectedNav === NAV_MAPPING) {
+      el("#emptyState").classList.add("hidden");
+      renderMappingTab();
+      return;
+    }
+
+    if (!state.leads.length) {
+      el("#emptyState").classList.remove("hidden");
+      return;
+    }
+    el("#emptyState").classList.add("hidden");
+
+    const filtered = leadsForView();
+    el("#kpiLeadsInView").textContent = filtered.length;
+
+    if (state.selectedSubTab === "dashboard") {
+      renderDashboard(filtered);
+    } else {
+      renderClientTracking(filtered);
+    }
+  }
+
+  // ---------- Dashboard sub-tab ----------
+
+  function renderDashboard(leads) {
+    const content = el("#content");
+    const byCampaign = state.selectedCampaign === "all";
+    const dimLabel = byCampaign ? "Campaign" : "Ad";
+    const dimKey = byCampaign ? "campaign_name" : "ad_name";
+
+    const counts = new Map();
+    leads.forEach((l) => {
+      const key = l[dimKey] || `(no ${dimLabel.toLowerCase()})`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    const rows = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+
+    const chartPanel = create("div", { class: "panel" }, [
+      create("h3", {}, [text(`Leads by ${dimLabel} — ${monthLabel(state.selectedMonth)}`)]),
+      create("div", { class: "dashboard-grid" }, [
+        create("div", { class: "chart-wrap" }, [create("canvas", { id: "adChart" })]),
+        create("div", { class: "table-scroll" }, [buildCountTable(rows, dimLabel)]),
+      ]),
+    ]);
+    content.appendChild(chartPanel);
+
+    drawChart(rows);
+
+    const clientPanel = create("div", { class: "panel" }, [
+      create("h3", {}, [text("Client Details")]),
+      create("div", { class: "table-scroll" }, [buildClientDetailsTable(leads)]),
+    ]);
+    content.appendChild(clientPanel);
+  }
+
+  function buildCountTable(rows, dimLabel) {
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
-      create("tr", {}, [create("th", {}, [text("Ad Name")]), create("th", {}, [text("Count")])]),
+      create("tr", {}, [create("th", {}, [text(`${dimLabel} Name`)]), create("th", {}, [text("Count")])]),
     ]));
     const tbody = create("tbody");
     if (!rows.length) {
@@ -229,21 +296,6 @@
     });
     table.appendChild(tbody);
     return table;
-  }
-
-  function buildAdNameFilterField(adNames) {
-    const sel = create("select", {
-      onchange: (e) => { state.adNameFilter = e.target.value; renderContent(); },
-    });
-    sel.appendChild(create("option", { value: "all" }, [text("All ads")]));
-    adNames.forEach((name) => {
-      sel.appendChild(create("option", { value: name }, [text(name)]));
-    });
-    sel.value = state.adNameFilter;
-    return create("div", { class: "filter-field" }, [
-      create("label", {}, [text("Ad Name")]),
-      sel,
-    ]);
   }
 
   function buildClientDetailsTable(leads) {
@@ -309,27 +361,26 @@
 
   // ---------- Client Tracking sub-tab ----------
 
-  function renderClientTracking(campaignLeads) {
+  function renderClientTracking(leads) {
     const content = el("#content");
-    const downloadBtn = create("button", {
-      class: "btn btn-outline",
-      onclick: downloadTrackingExcel,
-    }, [text("Download Excel")]);
+    const downloadBtn = create("button", { class: "btn btn-outline", onclick: downloadTrackingExcel }, [text("Download Excel")]);
 
     const panel = create("div", { class: "panel" }, [
       create("div", { class: "panel-header-row" }, [
         create("h3", {}, [text("Client Tracking")]),
         downloadBtn,
       ]),
-      create("div", { class: "table-scroll" }, [buildTrackingTable(campaignLeads)]),
+      create("div", { class: "table-scroll" }, [buildTrackingTable(leads)]),
     ]);
     content.appendChild(panel);
   }
 
   function downloadTrackingExcel() {
     const params = new URLSearchParams({
-      campaign: state.selectedCampaign || "",
+      area: state.selectedNav || "",
       month: state.selectedMonth,
+      campaign: state.selectedCampaign === "all" ? "" : state.selectedCampaign,
+      status: state.selectedStatus,
     });
     window.location.href = `/api/export/tracking?${params.toString()}`;
   }
@@ -341,11 +392,11 @@
   function buildTrackingTable(leads) {
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
-      create("tr", {}, ["Lead ID", "Full Name", "Email", "Phone", "Street Address", "Status", "Remarks"].map((h) => create("th", {}, [text(h)]))),
+      create("tr", {}, ["Lead ID", "Full Name", "Email", "Phone", "Street Address", "Status", "Attempts Made", "Remarks"].map((h) => create("th", {}, [text(h)]))),
     ]));
     const tbody = create("tbody");
     if (!leads.length) {
-      tbody.appendChild(create("tr", {}, [create("td", { colspan: "7" }, [text("No leads match this filter.")])]));
+      tbody.appendChild(create("tr", {}, [create("td", { colspan: "8" }, [text("No leads match this filter.")])]));
     }
 
     leads.forEach((l) => {
@@ -359,16 +410,20 @@
       const badge = create("span", { class: "status-badge" }, [dot, statusSelect]);
       applyStatusBadgeClass(badge, l.status);
 
+      const attemptsCell = create("td", { class: "num" }, [text(`Attempt ${l.attempts}`)]);
+
       statusSelect.addEventListener("change", async () => {
         const newStatus = statusSelect.value;
         try {
-          await fetchJSON(`/api/leads/${encodeURIComponent(l.id)}`, {
+          const updated = await fetchJSON(`/api/leads/${encodeURIComponent(l.id)}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ status: newStatus }),
           });
-          l.status = newStatus;
-          applyStatusBadgeClass(badge, newStatus);
+          l.status = updated.status;
+          l.attempts = updated.attempts;
+          applyStatusBadgeClass(badge, l.status);
+          attemptsCell.textContent = `Attempt ${l.attempts}`;
           showToast("Status saved");
         } catch (err) {
           alert("Could not save status: " + err.message);
@@ -405,12 +460,86 @@
         create("td", { class: "phone-cell" }, [text(l.phone)]),
         create("td", { class: "wrap" }, [text(l.street_address)]),
         create("td", {}, [badge]),
+        attemptsCell,
         create("td", {}, [remarksInput]),
       ]));
     });
 
     table.appendChild(tbody);
     return table;
+  }
+
+  // ---------- Campaign-Area Mapping tab ----------
+
+  function renderMappingTab() {
+    const content = el("#content");
+    const columns = [{ area: null, label: "Unassigned" }].concat(
+      state.meta.areas.map((a) => ({ area: a.name, label: a.name }))
+    );
+
+    const gridEl = create("div", { class: "mapping-grid" });
+
+    columns.forEach((col) => {
+      const campaignsInCol = state.campaignMap.filter((c) => c.area === col.area);
+      const colEl = create("div", { class: "map-column" });
+
+      colEl.appendChild(create("div", { class: "map-column-header" }, [
+        create("span", {}, [text(col.label)]),
+        create("span", { class: "num" }, [text(String(campaignsInCol.length))]),
+      ]));
+
+      const body = create("div", { class: "map-column-body" });
+      if (!campaignsInCol.length) {
+        body.appendChild(create("div", { class: "map-empty" }, [text("No campaigns here")]));
+      }
+      campaignsInCol.forEach((c) => {
+        const card = create("div", { class: "campaign-card", draggable: "true" }, [
+          create("span", { class: "campaign-card-name" }, [text(c.name)]),
+          create("span", { class: "count num" }, [text(String(c.count))]),
+        ]);
+        card.addEventListener("dragstart", (e) => {
+          e.dataTransfer.setData("text/plain", c.name);
+          card.classList.add("dragging");
+        });
+        card.addEventListener("dragend", () => card.classList.remove("dragging"));
+        body.appendChild(card);
+      });
+      colEl.appendChild(body);
+
+      colEl.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        colEl.classList.add("drag-over");
+      });
+      colEl.addEventListener("dragleave", () => colEl.classList.remove("drag-over"));
+      colEl.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        colEl.classList.remove("drag-over");
+        const campaignName = e.dataTransfer.getData("text/plain");
+        if (!campaignName) return;
+        try {
+          await fetchJSON("/api/campaign-map", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ campaign: campaignName, area: col.area }),
+          });
+          showToast(`${campaignName} → ${col.label}`);
+          await loadAll();
+        } catch (err) {
+          alert("Could not move campaign: " + err.message);
+        }
+      });
+
+      gridEl.appendChild(colEl);
+    });
+
+    const panel = create("div", { class: "panel" }, [
+      create("h3", {}, [text("Campaign → Area Mapping")]),
+      create("p", { class: "mapping-hint" }, [
+        text("Drag a campaign card into an area column to route its leads there. New campaigns from future uploads land in Unassigned until you place them."),
+      ]),
+      gridEl,
+    ]);
+    content.appendChild(panel);
   }
 
   // ---------- Upload modal ----------
@@ -464,31 +593,6 @@
     const d = document.createElement("div");
     d.textContent = s;
     return d.innerHTML;
-  }
-
-  function setupFilterBar() {
-    el("#monthFilter").addEventListener("change", (e) => {
-      state.selectedMonth = e.target.value;
-      el("#footerPeriod").textContent = monthLabel(state.selectedMonth);
-      renderContent();
-    });
-    el("#clearMonthFilter").addEventListener("click", (e) => {
-      e.preventDefault();
-      state.selectedMonth = "all";
-      renderMonthFilter();
-      el("#footerPeriod").textContent = monthLabel(state.selectedMonth);
-      renderContent();
-    });
-  }
-
-  function setupSubTabs() {
-    document.querySelectorAll("#subTabs .tab-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        state.selectedSubTab = btn.dataset.subtab;
-        renderSubTabBar();
-        renderContent();
-      });
-    });
   }
 
   document.addEventListener("DOMContentLoaded", () => {
