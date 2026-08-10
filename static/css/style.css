@@ -775,6 +775,29 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
     padding-left: 16px;
     flex-direction: row;
     flex-shrink: 0;
+    gap: 16px;
   }
   .main { padding: 20px; }
+  .hv-filter-row { flex-wrap: wrap; }
+}
+
+/* Small phones: tighten spacing, shrink the display heading, drop the
+   sidebar stats footer (its info is duplicated in the KPI cards), and
+   let KPI cards pack two-up instead of demanding 190px each. */
+@media (max-width: 560px) {
+  .main { padding: 14px; }
+  .page-title { font-size: 26px; }
+  .page-header-top { gap: 12px; }
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .kpi-value { font-size: 17px; }
+  .sidebar-footer { display: none; }
+  .filterbar { gap: 14px; }
+  .filter-field select,
+  .filter-field input[type="text"] { min-width: 130px; }
+  .btn { padding: 9px 14px; }
+  .panel { padding: 14px; }
+}
+
+@media (max-width: 330px) {
+  .kpi-grid { grid-template-columns: 1fr; }
 }

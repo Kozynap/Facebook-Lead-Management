@@ -118,6 +118,16 @@ def init_db():
     conn.close()
 
 
+def _date_only(created_time):
+    """Return the YYYY-MM-DD portion of an ISO created_time, or ''."""
+    if not created_time:
+        return ""
+    try:
+        return datetime.fromisoformat(created_time).strftime("%Y-%m-%d")
+    except ValueError:
+        return created_time[:10]
+
+
 def month_label(created_month):
     if not created_month or created_month == "unknown":
         return "Unknown"
@@ -188,6 +198,7 @@ def get_all_leads():
         for r in rows:
             d = dict(r)
             d["created_month_label"] = month_label(d["created_month"])
+            d["created_date"] = _date_only(d["created_time"])
             leads.append(d)
         return leads
     finally:

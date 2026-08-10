@@ -7,6 +7,7 @@
     "Home visit done", "Home visit and payment done", "No home visit but payment done",
   ];
   const NAV_MAPPING = "__mapping__";
+  const NAV_OVERVIEW = "__overview__";
   const MONTH_NAMES = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
@@ -28,6 +29,8 @@
     selectedSubTab: "dashboard",
     hvStatusFilter: "all",
     calendarMonth: { year: now.getFullYear(), month: now.getMonth() },
+    ovStatusFilter: "all",
+    ovHvStatusFilter: "all",
   };
 
   let chartInstance = null;
@@ -117,42 +120,39 @@
     const nav = el("#sidebarNav");
     nav.innerHTML = "";
 
-    state.meta.areas.forEach((a, i) => {
-      const btn = create(
+    let idx = 0;
+    const addNavItem = (navKey, label, count, badge) => {
+      idx += 1;
+      const children = [
+        create("span", { class: "nav-num" }, [text(String(idx).padStart(2, "0"))]),
+        create("span", { class: "nav-label" }, [text(label)]),
+      ];
+      if (count !== null && count !== undefined) {
+        children.push(create("span", { class: "nav-count num" }, [text(String(count))]));
+      }
+      if (badge) {
+        children.push(create("span", { class: "nav-badge" }, [text(String(badge))]));
+      }
+      nav.appendChild(create(
         "button",
-        { class: "nav-item" + (state.selectedNav === a.name ? " active" : ""), onclick: () => selectNav(a.name) },
-        [
-          create("span", { class: "nav-num" }, [text(String(i + 1).padStart(2, "0"))]),
-          create("span", { class: "nav-label" }, [text(a.name)]),
-          create("span", { class: "nav-count num" }, [text(String(a.count))]),
-        ]
-      );
-      nav.appendChild(btn);
-    });
+        { class: "nav-item" + (state.selectedNav === navKey ? " active" : ""), onclick: () => selectNav(navKey) },
+        children
+      ));
+    };
 
-    const mappingChildren = [
-      create("span", { class: "nav-num" }, [text(String(state.meta.areas.length + 1).padStart(2, "0"))]),
-      create("span", { class: "nav-label" }, [text("Campaign-Area Mapping")]),
-    ];
-    if (state.meta.unassigned_campaign_count > 0) {
-      mappingChildren.push(create("span", { class: "nav-badge" }, [text(String(state.meta.unassigned_campaign_count))]));
-    }
-    const mapBtn = create(
-      "button",
-      { class: "nav-item" + (state.selectedNav === NAV_MAPPING ? " active" : ""), onclick: () => selectNav(NAV_MAPPING) },
-      mappingChildren
-    );
-    nav.appendChild(mapBtn);
+    addNavItem(NAV_OVERVIEW, "Overview", state.leads.length);
+    state.meta.areas.forEach((a) => addNavItem(a.name, a.name, a.count));
+    addNavItem(NAV_MAPPING, "Campaign-Area Mapping", null, state.meta.unassigned_campaign_count || null);
 
-    el("#pageTitle").textContent =
-      state.selectedNav === NAV_MAPPING ? "Campaign-Area Mapping" : state.selectedNav || "Facebook Leads";
+    const titles = { [NAV_MAPPING]: "Campaign-Area Mapping", [NAV_OVERVIEW]: "Overview" };
+    el("#pageTitle").textContent = titles[state.selectedNav] || state.selectedNav || "Facebook Leads";
   }
 
   // ---------- Filters ----------
 
   function renderFilters() {
-    const isMapping = state.selectedNav === NAV_MAPPING;
-    const showFilters = !isMapping && state.leads.length > 0;
+    const isSpecial = state.selectedNav === NAV_MAPPING || state.selectedNav === NAV_OVERVIEW;
+    const showFilters = !isSpecial && state.leads.length > 0;
     el("#filterBar").classList.toggle("hidden", !showFilters);
     el("#subTabs").classList.toggle("hidden", !showFilters);
     if (!showFilters) return;
@@ -254,6 +254,11 @@
     }
     el("#emptyState").classList.add("hidden");
 
+    if (state.selectedNav === NAV_OVERVIEW) {
+      renderOverviewTab();
+      return;
+    }
+
     const filtered = leadsForView();
     el("#kpiLeadsInView").textContent = filtered.length;
 
@@ -321,19 +326,20 @@
   function buildClientDetailsTable(leads) {
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
-      create("tr", {}, ["Lead ID", "Full Name", "Email", "Phone", "Street Address"].map((h) => create("th", {}, [text(h)]))),
+      create("tr", {}, ["Date", "Full Name", "Phone", "Street Address", "Email", "Lead ID"].map((h) => create("th", {}, [text(h)]))),
     ]));
     const tbody = create("tbody");
     if (!leads.length) {
-      tbody.appendChild(create("tr", {}, [create("td", { colspan: "5" }, [text("No leads match this filter.")])]));
+      tbody.appendChild(create("tr", {}, [create("td", { colspan: "6" }, [text("No leads match this filter.")])]));
     }
     leads.forEach((l) => {
       tbody.appendChild(create("tr", {}, [
-        create("td", { class: "id-cell" }, [text(l.id)]),
+        create("td", { class: "num" }, [text(l.created_date)]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
-        create("td", {}, [text(l.email)]),
         create("td", { class: "phone-cell" }, [text(l.phone)]),
         create("td", { class: "wrap" }, [text(l.street_address)]),
+        create("td", {}, [text(l.email)]),
+        create("td", { class: "id-cell" }, [text(l.id)]),
       ]));
     });
     table.appendChild(tbody);
@@ -468,11 +474,11 @@
   function buildTrackingTable(leads) {
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
-      create("tr", {}, ["Lead ID", "Full Name", "Email", "Phone", "Street Address", "Status", "Attempts Made", "Home Visit Status", "Home Visit Date", "Remarks"].map((h) => create("th", {}, [text(h)]))),
+      create("tr", {}, ["Date", "Full Name", "Phone", "Street Address", "Customer ID", "Email", "Status", "Attempts Made", "Home Visit Status", "Home Visit Date", "Remarks"].map((h) => create("th", {}, [text(h)]))),
     ]));
     const tbody = create("tbody");
     if (!leads.length) {
-      tbody.appendChild(create("tr", {}, [create("td", { colspan: "10" }, [text("No leads match this filter.")])]));
+      tbody.appendChild(create("tr", {}, [create("td", { colspan: "11" }, [text("No leads match this filter.")])]));
     }
 
     leads.forEach((l) => {
@@ -533,11 +539,12 @@
       const hvDateInput = buildHomeVisitDateCell(l, null);
 
       tbody.appendChild(create("tr", {}, [
-        create("td", { class: "id-cell" }, [text(l.id)]),
+        create("td", { class: "num" }, [text(l.created_date)]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
-        create("td", {}, [text(l.email)]),
         create("td", { class: "phone-cell" }, [text(l.phone)]),
         create("td", { class: "wrap" }, [text(l.street_address)]),
+        create("td", { class: "id-cell" }, [text(l.id)]),
+        create("td", {}, [text(l.email)]),
         create("td", {}, [badge]),
         attemptsCell,
         create("td", {}, [hvStatusBadge]),
@@ -603,11 +610,11 @@
   function buildHomeVisitTable(leads) {
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
-      create("tr", {}, ["Home Visit Date", "Client Name", "Phone", "Email", "Customer ID", "Status"].map((h) => create("th", {}, [text(h)]))),
+      create("tr", {}, ["Home Visit Date", "Client Name", "Phone", "Street Address", "Email", "Customer ID", "Status"].map((h) => create("th", {}, [text(h)]))),
     ]));
     const tbody = create("tbody");
     if (!leads.length) {
-      tbody.appendChild(create("tr", {}, [create("td", { colspan: "6" }, [text("No leads match this filter.")])]));
+      tbody.appendChild(create("tr", {}, [create("td", { colspan: "7" }, [text("No leads match this filter.")])]));
     }
     leads.forEach((l) => {
       const dateInput = buildHomeVisitDateCell(l, () => renderContent());
@@ -616,6 +623,7 @@
         create("td", {}, [dateInput]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
         create("td", { class: "phone-cell" }, [text(l.phone)]),
+        create("td", { class: "wrap" }, [text(l.street_address)]),
         create("td", {}, [text(l.email)]),
         create("td", { class: "id-cell" }, [text(l.id)]),
         create("td", {}, [statusBadge]),
@@ -720,7 +728,7 @@
 
     const kpis = computeHomeVisitKPIs(areaLeads);
     const kpiPanel = create("div", { class: "panel" }, [
-      create("h3", {}, [text("Home Visit Overview")]),
+      create("h3", {}, [text("Home Visit Schedule")]),
       create("div", { class: "kpi-grid" }, [
         buildKpiCard(String(kpis.today), "Scheduled Today"),
         buildKpiCard(String(kpis.tomorrow), "Scheduled Tomorrow"),
@@ -729,6 +737,20 @@
       ]),
     ]);
     content.appendChild(kpiPanel);
+
+    const statusCounts = new Map(HOME_VISIT_STATUS_OPTIONS.map((s) => [s, 0]));
+    areaLeads.forEach((l) => {
+      if (statusCounts.has(l.home_visit_status)) {
+        statusCounts.set(l.home_visit_status, statusCounts.get(l.home_visit_status) + 1);
+      }
+    });
+    const statusKpiPanel = create("div", { class: "panel" }, [
+      create("h3", {}, [text("Home Visit Status Breakdown")]),
+      create("div", { class: "kpi-grid" },
+        HOME_VISIT_STATUS_OPTIONS.map((s) => buildKpiCard(String(statusCounts.get(s)), s))
+      ),
+    ]);
+    content.appendChild(statusKpiPanel);
 
     const hvFiltered = leads.filter((l) => state.hvStatusFilter === "all" || l.home_visit_status === state.hvStatusFilter);
 
@@ -765,6 +787,67 @@
       buildCalendar(calendarLeads),
     ]);
     content.appendChild(calendarPanel);
+  }
+
+  // ---------- Overview tab (global, cross-area) ----------
+
+  function buildOverviewFilterField(labelText, current, options, onChange) {
+    const sel = create("select", { onchange: (e) => onChange(e.target.value) });
+    sel.appendChild(create("option", { value: "all" }, [text("All")]));
+    options.forEach((o) => sel.appendChild(create("option", { value: o }, [text(o)])));
+    sel.value = current;
+    return create("div", { class: "filter-field" }, [
+      create("label", {}, [text(labelText)]),
+      sel,
+    ]);
+  }
+
+  function renderOverviewTab() {
+    const content = el("#content");
+
+    const filtered = state.leads.filter((l) => {
+      if (state.ovStatusFilter !== "all" && l.status !== state.ovStatusFilter) return false;
+      if (state.ovHvStatusFilter !== "all" && l.home_visit_status !== state.ovHvStatusFilter) return false;
+      return true;
+    });
+
+    // KPI row: total + one card per area (respecting the two filters).
+    const areaCounts = new Map(state.meta.areas.map((a) => [a.name, 0]));
+    let unassigned = 0;
+    filtered.forEach((l) => {
+      if (l.area && areaCounts.has(l.area)) areaCounts.set(l.area, areaCounts.get(l.area) + 1);
+      else unassigned += 1;
+    });
+
+    const kpiCards = [buildKpiCard(String(filtered.length), "Total Leads")];
+    state.meta.areas.forEach((a) => kpiCards.push(buildKpiCard(String(areaCounts.get(a.name)), a.name)));
+    kpiCards.push(buildKpiCard(String(unassigned), "Unassigned"));
+
+    const filterRow = create("div", { class: "hv-filter-row" }, [
+      buildOverviewFilterField("Lead Status", state.ovStatusFilter, STATUS_OPTIONS, (v) => { state.ovStatusFilter = v; renderContent(); }),
+      buildOverviewFilterField("Home Visit Status", state.ovHvStatusFilter, HOME_VISIT_STATUS_OPTIONS, (v) => { state.ovHvStatusFilter = v; renderContent(); }),
+    ]);
+
+    const kpiPanel = create("div", { class: "panel" }, [
+      create("h3", {}, [text("Leads by Area")]),
+      filterRow,
+      create("div", { class: "kpi-grid" }, kpiCards),
+    ]);
+    content.appendChild(kpiPanel);
+
+    // Bar chart + table, area-wise.
+    const chartRows = state.meta.areas.map((a) => [a.name, areaCounts.get(a.name)]);
+    if (unassigned > 0) chartRows.push(["Unassigned", unassigned]);
+
+    const chartPanel = create("div", { class: "panel" }, [
+      create("h3", {}, [text("Area-wise Lead Count")]),
+      create("div", { class: "dashboard-grid" }, [
+        create("div", { class: "chart-wrap" }, [create("canvas", { id: "adChart" })]),
+        create("div", { class: "table-scroll" }, [buildCountTable(chartRows, "Area")]),
+      ]),
+    ]);
+    content.appendChild(chartPanel);
+    drawChart(chartRows);
   }
 
   // ---------- Campaign-Area Mapping tab ----------
