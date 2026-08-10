@@ -2,9 +2,20 @@
   "use strict";
 
   const STATUS_OPTIONS = window.STATUS_OPTIONS || ["New", "Follow up", "Warm", "Booked", "Cold"];
+  const HOME_VISIT_STATUS_OPTIONS = window.HOME_VISIT_STATUS_OPTIONS || [
+    "Pending", "Not Required", "Cancelled", "Booked",
+    "Home visit done", "Home visit and payment done", "No home visit but payment done",
+  ];
   const NAV_MAPPING = "__mapping__";
+  const MONTH_NAMES = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
 
   const slug = (s) => s.replace(/\s+/g, "-");
+  const toDateOnly = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  const now = new Date();
 
   const state = {
     leads: [],
@@ -15,6 +26,8 @@
     selectedCampaign: "all",
     selectedStatus: "all",
     selectedSubTab: "dashboard",
+    hvStatusFilter: "all",
+    calendarMonth: { year: now.getFullYear(), month: now.getMonth() },
   };
 
   let chartInstance = null;
@@ -96,6 +109,7 @@
     state.selectedNav = name;
     state.selectedCampaign = "all";
     state.selectedStatus = "all";
+    state.hvStatusFilter = "all";
     render();
   }
 
@@ -220,6 +234,10 @@
     });
   }
 
+  function leadsForArea() {
+    return state.leads.filter((l) => l.area === state.selectedNav);
+  }
+
   function renderContent() {
     const content = el("#content");
     content.querySelectorAll(".panel").forEach((n) => n.remove());
@@ -241,8 +259,10 @@
 
     if (state.selectedSubTab === "dashboard") {
       renderDashboard(filtered);
-    } else {
+    } else if (state.selectedSubTab === "tracking") {
       renderClientTracking(filtered);
+    } else {
+      renderHomeVisitTab(filtered);
     }
   }
 
@@ -389,14 +409,70 @@
     badge.className = "status-badge status-" + slug(status);
   }
 
+  // Shared between Client Tracking, the Home Visit table, and the calendar's
+  // reschedule editor - a change made anywhere updates the same lead object
+  // in state.leads, so every other view picks it up on its next render.
+
+  function buildHomeVisitStatusCell(lead, onSaved) {
+    const select = create("select", { class: "status-select" });
+    HOME_VISIT_STATUS_OPTIONS.forEach((opt) => {
+      select.appendChild(create("option", { value: opt }, [text(opt)]));
+    });
+    select.value = lead.home_visit_status;
+
+    const dot = create("span", { class: "dot" });
+    const badge = create("span", { class: "status-badge hv-status-" + slug(lead.home_visit_status) }, [dot, select]);
+
+    select.addEventListener("change", async () => {
+      const newVal = select.value;
+      try {
+        const updated = await fetchJSON(`/api/leads/${encodeURIComponent(lead.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ home_visit_status: newVal }),
+        });
+        lead.home_visit_status = updated.home_visit_status;
+        badge.className = "status-badge hv-status-" + slug(lead.home_visit_status);
+        showToast("Home visit status saved");
+        if (onSaved) onSaved();
+      } catch (err) {
+        alert("Could not save home visit status: " + err.message);
+        select.value = lead.home_visit_status;
+      }
+    });
+
+    return badge;
+  }
+
+  function buildHomeVisitDateCell(lead, onSaved) {
+    const input = create("input", { type: "date", class: "date-input", value: lead.home_visit_date || "" });
+    input.addEventListener("change", async () => {
+      const newVal = input.value;
+      try {
+        const updated = await fetchJSON(`/api/leads/${encodeURIComponent(lead.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ home_visit_date: newVal }),
+        });
+        lead.home_visit_date = updated.home_visit_date;
+        showToast("Home visit date saved");
+        if (onSaved) onSaved();
+      } catch (err) {
+        alert("Could not save home visit date: " + err.message);
+        input.value = lead.home_visit_date || "";
+      }
+    });
+    return input;
+  }
+
   function buildTrackingTable(leads) {
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
-      create("tr", {}, ["Lead ID", "Full Name", "Email", "Phone", "Street Address", "Status", "Attempts Made", "Remarks"].map((h) => create("th", {}, [text(h)]))),
+      create("tr", {}, ["Lead ID", "Full Name", "Email", "Phone", "Street Address", "Status", "Attempts Made", "Home Visit Status", "Home Visit Date", "Remarks"].map((h) => create("th", {}, [text(h)]))),
     ]));
     const tbody = create("tbody");
     if (!leads.length) {
-      tbody.appendChild(create("tr", {}, [create("td", { colspan: "8" }, [text("No leads match this filter.")])]));
+      tbody.appendChild(create("tr", {}, [create("td", { colspan: "10" }, [text("No leads match this filter.")])]));
     }
 
     leads.forEach((l) => {
@@ -453,6 +529,9 @@
         if (e.key === "Enter") { e.preventDefault(); remarksInput.blur(); }
       });
 
+      const hvStatusBadge = buildHomeVisitStatusCell(l, null);
+      const hvDateInput = buildHomeVisitDateCell(l, null);
+
       tbody.appendChild(create("tr", {}, [
         create("td", { class: "id-cell" }, [text(l.id)]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
@@ -461,12 +540,231 @@
         create("td", { class: "wrap" }, [text(l.street_address)]),
         create("td", {}, [badge]),
         attemptsCell,
+        create("td", {}, [hvStatusBadge]),
+        create("td", {}, [hvDateInput]),
         create("td", {}, [remarksInput]),
       ]));
     });
 
     table.appendChild(tbody);
     return table;
+  }
+
+  // ---------- Home Visit sub-tab ----------
+
+  function computeHomeVisitKPIs(areaLeads) {
+    const booked = areaLeads.filter((l) => l.home_visit_status === "Booked" && l.home_visit_date);
+    const today = new Date();
+    const todayStr = toDateOnly(today);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = toDateOnly(tomorrow);
+
+    const dayOfWeek = (today.getDay() + 6) % 7; // 0 = Monday
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - dayOfWeek);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    const nextWeekStart = new Date(weekStart);
+    nextWeekStart.setDate(weekStart.getDate() + 7);
+    const nextWeekEnd = new Date(weekStart);
+    nextWeekEnd.setDate(weekStart.getDate() + 13);
+
+    const inRange = (dateStr, start, end) => dateStr >= toDateOnly(start) && dateStr <= toDateOnly(end);
+
+    return {
+      today: booked.filter((l) => l.home_visit_date === todayStr).length,
+      tomorrow: booked.filter((l) => l.home_visit_date === tomorrowStr).length,
+      thisWeek: booked.filter((l) => inRange(l.home_visit_date, weekStart, weekEnd)).length,
+      nextWeek: booked.filter((l) => inRange(l.home_visit_date, nextWeekStart, nextWeekEnd)).length,
+    };
+  }
+
+  function buildKpiCard(value, label) {
+    return create("div", { class: "kpi-card" }, [
+      create("div", { class: "kpi-value num" }, [text(value)]),
+      create("div", { class: "kpi-label" }, [text(label)]),
+    ]);
+  }
+
+  function buildHVStatusFilterField() {
+    const sel = create("select", {
+      onchange: (e) => { state.hvStatusFilter = e.target.value; renderContent(); },
+    });
+    sel.appendChild(create("option", { value: "all" }, [text("All statuses")]));
+    HOME_VISIT_STATUS_OPTIONS.forEach((s) => sel.appendChild(create("option", { value: s }, [text(s)])));
+    sel.value = state.hvStatusFilter;
+    return create("div", { class: "filter-field" }, [
+      create("label", {}, [text("Home Visit Status")]),
+      sel,
+    ]);
+  }
+
+  function buildHomeVisitTable(leads) {
+    const table = create("table", { class: "data-table" });
+    table.appendChild(create("thead", {}, [
+      create("tr", {}, ["Home Visit Date", "Client Name", "Phone", "Email", "Customer ID", "Status"].map((h) => create("th", {}, [text(h)]))),
+    ]));
+    const tbody = create("tbody");
+    if (!leads.length) {
+      tbody.appendChild(create("tr", {}, [create("td", { colspan: "6" }, [text("No leads match this filter.")])]));
+    }
+    leads.forEach((l) => {
+      const dateInput = buildHomeVisitDateCell(l, () => renderContent());
+      const statusBadge = buildHomeVisitStatusCell(l, () => renderContent());
+      tbody.appendChild(create("tr", {}, [
+        create("td", {}, [dateInput]),
+        create("td", { class: "wrap" }, [text(l.full_name)]),
+        create("td", { class: "phone-cell" }, [text(l.phone)]),
+        create("td", {}, [text(l.email)]),
+        create("td", { class: "id-cell" }, [text(l.id)]),
+        create("td", {}, [statusBadge]),
+      ]));
+    });
+    table.appendChild(tbody);
+    return table;
+  }
+
+  function shiftCalendarMonth(delta) {
+    let { year, month } = state.calendarMonth;
+    month += delta;
+    if (month < 0) { month = 11; year -= 1; }
+    if (month > 11) { month = 0; year += 1; }
+    state.calendarMonth = { year, month };
+    renderContent();
+  }
+
+  function buildVisitChip(lead, cellEl) {
+    const chip = create("button", { class: "visit-chip hv-status-" + slug(lead.home_visit_status) }, [
+      text(lead.full_name || lead.id),
+    ]);
+
+    chip.addEventListener("click", () => {
+      const dateInput = create("input", { type: "date", value: lead.home_visit_date || "" });
+      const editor = create("div", { class: "visit-chip-editor" }, [
+        create("span", { class: "chip-name" }, [text(lead.full_name || lead.id)]),
+        dateInput,
+      ]);
+      dateInput.addEventListener("change", async () => {
+        const newVal = dateInput.value;
+        try {
+          const updated = await fetchJSON(`/api/leads/${encodeURIComponent(lead.id)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ home_visit_date: newVal }),
+          });
+          lead.home_visit_date = updated.home_visit_date;
+          showToast("Rescheduled");
+          renderContent();
+        } catch (err) {
+          alert("Could not reschedule: " + err.message);
+        }
+      });
+      cellEl.replaceChild(editor, chip);
+    });
+
+    return chip;
+  }
+
+  function buildCalendar(calendarLeads) {
+    const { year, month } = state.calendarMonth;
+
+    const header = create("div", { class: "calendar-header" }, [
+      create("div", { class: "calendar-title" }, [text(`${MONTH_NAMES[month]} ${year}`)]),
+      create("div", { class: "calendar-nav" }, [
+        create("button", { class: "calendar-nav-btn", onclick: () => shiftCalendarMonth(-1) }, [text("‹")]),
+        create("button", { class: "calendar-nav-btn", onclick: () => shiftCalendarMonth(1) }, [text("›")]),
+      ]),
+    ]);
+
+    const weekdaysRow = create("div", { class: "calendar-weekdays" },
+      ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((w) => create("div", { class: "calendar-weekday" }, [text(w)]))
+    );
+
+    const firstDay = new Date(year, month, 1);
+    const startWeekday = firstDay.getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const todayStr = toDateOnly(new Date());
+
+    const leadsByDate = new Map();
+    calendarLeads.forEach((l) => {
+      if (!l.home_visit_date) return;
+      if (!leadsByDate.has(l.home_visit_date)) leadsByDate.set(l.home_visit_date, []);
+      leadsByDate.get(l.home_visit_date).push(l);
+    });
+
+    const grid = create("div", { class: "calendar-grid" });
+    for (let i = 0; i < startWeekday; i++) {
+      grid.appendChild(create("div", { class: "calendar-cell blank" }));
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      const isToday = dateStr === todayStr;
+      const cell = create("div", { class: "calendar-cell" + (isToday ? " today" : "") }, [
+        create("div", { class: "calendar-day-number" }, [text(String(d))]),
+      ]);
+      (leadsByDate.get(dateStr) || []).forEach((l) => cell.appendChild(buildVisitChip(l, cell)));
+      grid.appendChild(cell);
+    }
+    const trailing = (7 - ((startWeekday + daysInMonth) % 7)) % 7;
+    for (let i = 0; i < trailing; i++) {
+      grid.appendChild(create("div", { class: "calendar-cell blank" }));
+    }
+
+    return create("div", {}, [header, weekdaysRow, grid]);
+  }
+
+  function renderHomeVisitTab(leads) {
+    const content = el("#content");
+    const areaLeads = leadsForArea();
+
+    const kpis = computeHomeVisitKPIs(areaLeads);
+    const kpiPanel = create("div", { class: "panel" }, [
+      create("h3", {}, [text("Home Visit Overview")]),
+      create("div", { class: "kpi-grid" }, [
+        buildKpiCard(String(kpis.today), "Scheduled Today"),
+        buildKpiCard(String(kpis.tomorrow), "Scheduled Tomorrow"),
+        buildKpiCard(String(kpis.thisWeek), "Booked This Week"),
+        buildKpiCard(String(kpis.nextWeek), "Booked Next Week"),
+      ]),
+    ]);
+    content.appendChild(kpiPanel);
+
+    const hvFiltered = leads.filter((l) => state.hvStatusFilter === "all" || l.home_visit_status === state.hvStatusFilter);
+
+    const byCampaign = state.selectedCampaign === "all";
+    const dimLabel = byCampaign ? "Campaign" : "Ad";
+    const dimKey = byCampaign ? "campaign_name" : "ad_name";
+    const counts = new Map();
+    hvFiltered.forEach((l) => {
+      const key = l[dimKey] || `(no ${dimLabel.toLowerCase()})`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    const rows = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+
+    const chartPanel = create("div", { class: "panel" }, [
+      create("div", { class: "hv-filter-row" }, [buildHVStatusFilterField()]),
+      create("h3", {}, [text(`Home Visits by ${dimLabel} — ${state.hvStatusFilter === "all" ? "All statuses" : state.hvStatusFilter}`)]),
+      create("div", { class: "dashboard-grid" }, [
+        create("div", { class: "chart-wrap" }, [create("canvas", { id: "adChart" })]),
+        create("div", { class: "table-scroll" }, [buildCountTable(rows, dimLabel)]),
+      ]),
+    ]);
+    content.appendChild(chartPanel);
+    drawChart(rows);
+
+    const tablePanel = create("div", { class: "panel" }, [
+      create("h3", {}, [text("Home Visit Details")]),
+      create("div", { class: "table-scroll" }, [buildHomeVisitTable(hvFiltered)]),
+    ]);
+    content.appendChild(tablePanel);
+
+    const calendarLeads = areaLeads.filter((l) => l.home_visit_date && (state.hvStatusFilter === "all" || l.home_visit_status === state.hvStatusFilter));
+    const calendarPanel = create("div", { class: "panel" }, [
+      create("h3", {}, [text("Home Visit Calendar")]),
+      buildCalendar(calendarLeads),
+    ]);
+    content.appendChild(calendarPanel);
   }
 
   // ---------- Campaign-Area Mapping tab ----------

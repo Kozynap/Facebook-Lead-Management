@@ -510,6 +510,24 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
 .status-Cold      { background: var(--brick-bg); color: var(--brick); }
 .status-Cold .dot { background: var(--brick); }
 
+/* Home Visit Status reuses the badge component but a distinct class
+   prefix, since "Booked" exists in both status vocabularies with
+   different colors. */
+.hv-status-Pending                          { background: var(--neutral-bg); color: var(--neutral); }
+.hv-status-Pending .dot                     { background: var(--neutral); }
+.hv-status-Not-Required                     { background: var(--neutral-bg); color: var(--neutral); }
+.hv-status-Not-Required .dot                { background: var(--neutral); }
+.hv-status-Cancelled                        { background: var(--brick-bg); color: var(--brick); }
+.hv-status-Cancelled .dot                   { background: var(--brick); }
+.hv-status-Booked                           { background: var(--amber-bg); color: var(--amber); }
+.hv-status-Booked .dot                      { background: var(--amber); }
+.hv-status-Home-visit-done                  { background: var(--rust-bg); color: var(--rust-deep); }
+.hv-status-Home-visit-done .dot             { background: var(--rust); }
+.hv-status-Home-visit-and-payment-done      { background: var(--sage-bg); color: var(--sage); }
+.hv-status-Home-visit-and-payment-done .dot { background: var(--sage); }
+.hv-status-No-home-visit-but-payment-done   { background: var(--sage-bg); color: var(--sage); }
+.hv-status-No-home-visit-but-payment-done .dot { background: var(--sage); }
+
 .remarks-input {
   width: 200px;
   border: none;
@@ -522,6 +540,17 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
 }
 .remarks-input:focus { outline: none; border-bottom-color: var(--rust); }
 
+.date-input {
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink);
+  padding: 4px 2px;
+}
+.date-input:focus { outline: none; border-bottom-color: var(--rust); }
+
 /* ---------- Empty state ---------- */
 
 .empty-state {
@@ -533,6 +562,124 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
 }
 
 .hidden { display: none !important; }
+
+/* ---------- Home Visit: filter row ---------- */
+
+.hv-filter-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+
+/* ---------- Calendar ---------- */
+
+.calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.calendar-title {
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-weight: 500;
+}
+.calendar-nav { display: flex; gap: 6px; }
+.calendar-nav-btn {
+  border: 1px solid var(--line);
+  background: #fff;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  color: var(--ink);
+}
+.calendar-nav-btn:hover { background: var(--surface); }
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border: 1px solid var(--line);
+  border-bottom: none;
+}
+.calendar-weekday {
+  padding: 8px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--subink);
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+.calendar-weekday:last-child { border-right: none; }
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border: 1px solid var(--line);
+}
+.calendar-cell {
+  min-height: 112px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #fff;
+  overflow-y: auto;
+}
+.calendar-cell:nth-child(7n) { border-right: none; }
+.calendar-cell.blank { background: var(--row-tint); }
+.calendar-cell.today { background: var(--rust-bg); }
+.calendar-day-number {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--subink);
+}
+.calendar-cell.today .calendar-day-number { color: var(--rust-deep); font-weight: 600; }
+
+.visit-chip {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 2px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: none;
+  text-align: left;
+  width: 100%;
+}
+.visit-chip-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 5px;
+}
+.visit-chip-editor .chip-name { font-size: 11px; font-weight: 600; }
+.visit-chip-editor input[type="date"] {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+@media (max-width: 700px) {
+  .calendar-cell { min-height: 64px; }
+  .visit-chip { font-size: 10px; }
+}
 
 /* ---------- Modal ---------- */
 

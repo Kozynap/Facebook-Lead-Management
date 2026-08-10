@@ -17,6 +17,17 @@ DEFAULT_STATUS = "New"
 
 AREAS = ["North Bengal", "South Bengal", "North East"]
 
+HOME_VISIT_STATUS_OPTIONS = [
+    "Pending",
+    "Not Required",
+    "Cancelled",
+    "Booked",
+    "Home visit done",
+    "Home visit and payment done",
+    "No home visit but payment done",
+]
+DEFAULT_HOME_VISIT_STATUS = "Pending"
+
 LEAD_FIELDS = [
     "id", "created_time", "created_month",
     "ad_id", "ad_name", "adset_id", "adset_name",
@@ -62,6 +73,8 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'New',
             remarks TEXT NOT NULL DEFAULT '',
             attempts INTEGER NOT NULL DEFAULT 0,
+            home_visit_status TEXT NOT NULL DEFAULT 'Pending',
+            home_visit_date TEXT NOT NULL DEFAULT '',
             status_updated_at TEXT,
             first_imported_at TEXT,
             last_seen_at TEXT,
@@ -83,10 +96,14 @@ def init_db():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_leads_month ON leads(created_month)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_leads_campaign ON leads(campaign_name)")
 
-    # Migrate older databases created before the `attempts` column existed.
+    # Migrate older databases created before these columns existed.
     cols = [r["name"] for r in conn.execute("PRAGMA table_info(leads)").fetchall()]
     if "attempts" not in cols:
         conn.execute("ALTER TABLE leads ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+    if "home_visit_status" not in cols:
+        conn.execute("ALTER TABLE leads ADD COLUMN home_visit_status TEXT NOT NULL DEFAULT 'Pending'")
+    if "home_visit_date" not in cols:
+        conn.execute("ALTER TABLE leads ADD COLUMN home_visit_date TEXT NOT NULL DEFAULT ''")
 
     # Any status set under the old 5-option scheme (Payment Pending/Dead/
     # Converted) no longer matches a valid option - reset it to New so the
@@ -132,11 +149,13 @@ def upsert_lead(record, imported_at, source_zip):
             result = "updated"
         else:
             fields = LEAD_FIELDS + [
-                "status", "remarks", "attempts", "status_updated_at",
+                "status", "remarks", "attempts",
+                "home_visit_status", "home_visit_date", "status_updated_at",
                 "first_imported_at", "last_seen_at", "source_zip",
             ]
             values = [record[f] for f in LEAD_FIELDS] + [
-                DEFAULT_STATUS, "", 0, None, imported_at, imported_at, source_zip,
+                DEFAULT_STATUS, "", 0,
+                DEFAULT_HOME_VISIT_STATUS, "", None, imported_at, imported_at, source_zip,
             ]
             placeholders = ", ".join("?" for _ in fields)
             conn.execute(
@@ -159,6 +178,7 @@ def get_all_leads():
                    leads.ad_name, leads.campaign_name,
                    leads.email, leads.full_name, leads.phone, leads.street_address,
                    leads.status, leads.remarks, leads.attempts,
+                   leads.home_visit_status, leads.home_visit_date,
                    campaign_areas.area AS area
             FROM leads
             LEFT JOIN campaign_areas ON leads.campaign_name = campaign_areas.campaign_name
@@ -174,11 +194,12 @@ def get_all_leads():
         conn.close()
 
 
-def update_lead(lead_id, status=None, remarks=None):
-    """Update status/remarks for a lead. Every genuine status change (new
-    value differs from the current one) increments `attempts` by one -
-    this is the running count of outreach attempts, not a field the user
-    edits directly."""
+def update_lead(lead_id, status=None, remarks=None, home_visit_status=None, home_visit_date=None):
+    """Update status/remarks/home-visit fields for a lead. Every genuine
+    change of the main `status` (new value differs from the current one)
+    increments `attempts` by one - the running count of outreach attempts.
+    home_visit_status/home_visit_date are independent fields and never
+    touch attempts."""
     conn = _connect()
     try:
         row = conn.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
@@ -195,6 +216,12 @@ def update_lead(lead_id, status=None, remarks=None):
         if remarks is not None:
             sets.append("remarks = ?")
             values.append(remarks)
+        if home_visit_status is not None:
+            sets.append("home_visit_status = ?")
+            values.append(home_visit_status)
+        if home_visit_date is not None:
+            sets.append("home_visit_date = ?")
+            values.append(home_visit_date)
 
         if sets:
             values.append(lead_id)
@@ -202,7 +229,8 @@ def update_lead(lead_id, status=None, remarks=None):
             conn.commit()
 
         row = conn.execute(
-            "SELECT id, status, remarks, attempts FROM leads WHERE id = ?", (lead_id,)
+            "SELECT id, status, remarks, attempts, home_visit_status, home_visit_date "
+            "FROM leads WHERE id = ?", (lead_id,)
         ).fetchone()
         return dict(row)
     finally:
