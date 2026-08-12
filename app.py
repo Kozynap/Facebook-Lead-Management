@@ -39,6 +39,25 @@ def _asset_version(*rel_parts):
         return "0"
 
 
+def _admin_code():
+    """The code required to download the FB Leads export. Checked fresh on
+    every request (not cached) so an admin can change it without restarting
+    the server. Priority: ADMIN_CODE env var, then admin_code.txt (both are
+    kept out of git - see .gitignore) - falls back to a placeholder so local
+    dev works out of the box, but that placeholder must be changed before
+    any real deployment."""
+    env_code = os.environ.get("ADMIN_CODE")
+    if env_code:
+        return env_code.strip()
+    code_path = os.path.join(BASE_DIR, "admin_code.txt")
+    if os.path.exists(code_path):
+        with open(code_path, "r", encoding="utf-8") as f:
+            file_code = f.read().strip()
+            if file_code:
+                return file_code
+    return "changeme"
+
+
 @app.route("/")
 def index():
     return render_template(
@@ -88,12 +107,17 @@ def api_campaign_map_set():
     return jsonify({"campaign": campaign, "area": area})
 
 
-@app.route("/api/export/tracking")
+@app.route("/api/export/tracking", methods=["POST"])
 def export_tracking():
-    area = request.args.get("area", "")
-    month = request.args.get("month", "all")
-    campaign = request.args.get("campaign", "")
-    status = request.args.get("status", "all")
+    body = request.get_json(force=True, silent=True) or {}
+
+    if body.get("code", "") != _admin_code():
+        return jsonify({"error": "Incorrect admin code."}), 403
+
+    area = body.get("area", "")
+    month = body.get("month", "all")
+    campaign = body.get("campaign", "")
+    status = body.get("status", "all")
 
     leads = db.get_all_leads()
     filtered = [
@@ -198,6 +222,7 @@ def api_update_lead(lead_id):
     remarks = body.get("remarks")
     home_visit_status = body.get("home_visit_status")
     home_visit_date = body.get("home_visit_date")
+    increment_attempts = bool(body.get("increment_attempts"))
 
     if status is not None and status not in db.STATUS_OPTIONS:
         return jsonify({"error": "Invalid status value."}), 400
@@ -209,6 +234,7 @@ def api_update_lead(lead_id):
     updated = db.update_lead(
         lead_id, status=status, remarks=remarks,
         home_visit_status=home_visit_status, home_visit_date=home_visit_date,
+        increment_attempts=increment_attempts,
     )
     if updated is None:
         return jsonify({"error": "Lead not found."}), 404

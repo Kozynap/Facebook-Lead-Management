@@ -69,7 +69,7 @@
     </header>
 
     <div class="filterbar" id="filterBar">
-      <div class="filter-field">
+      <div class="filter-field" id="monthFilterField">
         <label for="monthFilter">Month</label>
         <select id="monthFilter">
           <option value="all">All months</option>
@@ -92,7 +92,7 @@
 
     <nav class="tabs" id="subTabs">
       <button class="tab-btn active" data-subtab="dashboard">Dashboard</button>
-      <button class="tab-btn" data-subtab="tracking">Client Tracking</button>
+      <button class="tab-btn" data-subtab="tracking">FB Leads</button>
       <button class="tab-btn" data-subtab="homevisit">Home Visit</button>
     </nav>
 
@@ -114,6 +114,20 @@
     <div class="modal-actions">
       <button id="cancelUpload" class="btn btn-outline">Close</button>
       <button id="submitUpload" class="btn btn-primary">Upload</button>
+    </div>
+  </div>
+</div>
+
+<div id="downloadModal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div class="eyebrow">Admin Only</div>
+    <h2>Download FB Leads</h2>
+    <p class="modal-hint">Exporting the full lead list to Excel requires the admin code. Ask your admin if you don't have it.</p>
+    <input type="password" id="downloadCode" class="modal-code-input" placeholder="Admin code" autocomplete="off">
+    <div id="downloadResult" class="upload-result"></div>
+    <div class="modal-actions">
+      <button id="cancelDownload" class="btn btn-outline">Close</button>
+      <button id="submitDownload" class="btn btn-primary">Download</button>
     </div>
   </div>
 </div>

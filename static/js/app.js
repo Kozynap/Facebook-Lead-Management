@@ -31,6 +31,8 @@
     calendarMonth: { year: now.getFullYear(), month: now.getMonth() },
     ovStatusFilter: "all",
     ovHvStatusFilter: "all",
+    dashDateFrom: "",
+    dashDateTo: "",
   };
 
   let chartInstance = null;
@@ -113,6 +115,8 @@
     state.selectedCampaign = "all";
     state.selectedStatus = "all";
     state.hvStatusFilter = "all";
+    state.dashDateFrom = "";
+    state.dashDateTo = "";
     render();
   }
 
@@ -156,6 +160,10 @@
     el("#filterBar").classList.toggle("hidden", !showFilters);
     el("#subTabs").classList.toggle("hidden", !showFilters);
     if (!showFilters) return;
+
+    // Dashboard uses its own local date-range filter instead (different
+    // date dimension question than "which month was this lead created").
+    el("#monthFilterField").classList.toggle("hidden", state.selectedSubTab === "dashboard");
 
     const monthSel = el("#monthFilter");
     const currentMonth = state.selectedMonth;
@@ -217,6 +225,7 @@
       btn.addEventListener("click", () => {
         state.selectedSubTab = btn.dataset.subtab;
         renderSubTabBar();
+        renderFilters();
         renderContent();
       });
     });
@@ -259,49 +268,239 @@
       return;
     }
 
+    if (state.selectedSubTab === "dashboard") {
+      renderDashboard();
+      return;
+    }
+
     const filtered = leadsForView();
     el("#kpiLeadsInView").textContent = filtered.length;
 
-    if (state.selectedSubTab === "dashboard") {
-      renderDashboard(filtered);
-    } else if (state.selectedSubTab === "tracking") {
+    if (state.selectedSubTab === "tracking") {
       renderClientTracking(filtered);
     } else {
       renderHomeVisitTab(filtered);
     }
   }
 
-  // ---------- Dashboard sub-tab ----------
+  // ---------- Dashboard sub-tab (overall view for the current area) ----------
 
-  function renderDashboard(leads) {
-    const content = el("#content");
-    const byCampaign = state.selectedCampaign === "all";
-    const dimLabel = byCampaign ? "Campaign" : "Ad";
-    const dimKey = byCampaign ? "campaign_name" : "ad_name";
+  const CAMPAIGN_COLORS = ["#BB4B25", "#5C7A52", "#A6771F", "#AB4230", "#8A3A1E", "#726C62"];
 
-    const counts = new Map();
-    leads.forEach((l) => {
-      const key = l[dimKey] || `(no ${dimLabel.toLowerCase()})`;
-      counts.set(key, (counts.get(key) || 0) + 1);
+  // Dashboard uses its own date-range period (a different question than
+  // "which month was this lead created", the global Month filter) but
+  // still respects the shared Campaign/Status filters.
+  function leadsForDashboard() {
+    return leadsForArea().filter((l) => {
+      if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
+      if (state.selectedStatus !== "all" && l.status !== state.selectedStatus) return false;
+      if (state.dashDateFrom && l.created_date < state.dashDateFrom) return false;
+      if (state.dashDateTo && l.created_date > state.dashDateTo) return false;
+      return true;
     });
-    const rows = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }
 
-    const chartPanel = create("div", { class: "panel" }, [
-      create("h3", {}, [text(`Leads by ${dimLabel} — ${monthLabel(state.selectedMonth)}`)]),
-      create("div", { class: "dashboard-grid" }, [
-        create("div", { class: "chart-wrap" }, [create("canvas", { id: "adChart" })]),
-        create("div", { class: "table-scroll" }, [buildCountTable(rows, dimLabel)]),
+  function dashboardPeriodLabel() {
+    if (!state.dashDateFrom && !state.dashDateTo) return "All time";
+    if (state.dashDateFrom && state.dashDateTo) return `${state.dashDateFrom} to ${state.dashDateTo}`;
+    if (state.dashDateFrom) return `From ${state.dashDateFrom}`;
+    return `Through ${state.dashDateTo}`;
+  }
+
+  function buildDashboardDateRangeField() {
+    const fromInput = create("input", { type: "date", value: state.dashDateFrom });
+    const toInput = create("input", { type: "date", value: state.dashDateTo });
+    fromInput.addEventListener("change", () => { state.dashDateFrom = fromInput.value; renderContent(); });
+    toInput.addEventListener("change", () => { state.dashDateTo = toInput.value; renderContent(); });
+
+    return create("div", { class: "hv-filter-row" }, [
+      create("div", { class: "filter-field" }, [create("label", {}, [text("From")]), fromInput]),
+      create("div", { class: "filter-field" }, [create("label", {}, [text("To")]), toInput]),
+      create("a", {
+        href: "#",
+        class: "filter-clear",
+        onclick: (e) => { e.preventDefault(); state.dashDateFrom = ""; state.dashDateTo = ""; renderContent(); },
+      }, [text("Clear")]),
+    ]);
+  }
+
+  // "HV Done"/"HV Done & Purchased" read the current home_visit_status
+  // vocabulary (Pending/Booked/.../Home visit done/Home visit and payment
+  // done/...). If that model changes later, remap these two lines.
+  function computeDashboardSummary(leads) {
+    return {
+      leadsGenerated: leads.length,
+      hvBooked: leads.filter((l) => l.home_visit_status === "Booked").length,
+      hvDone: leads.filter((l) => l.home_visit_status === "Home visit done").length,
+      hvDoneAndPurchased: leads.filter((l) => l.home_visit_status === "Home visit and payment done").length,
+    };
+  }
+
+  function buildDashboardAdTable(leads) {
+    const byAd = new Map();
+    leads.forEach((l) => {
+      const camp = l.campaign_name || "(no campaign)";
+      const ad = l.ad_name || "(no ad)";
+      const key = camp + "||" + ad;
+      if (!byAd.has(key)) byAd.set(key, { campaign: camp, ad, leads: 0, hvBooked: 0, hvDone: 0, hvDoneAndPurchased: 0 });
+      const row = byAd.get(key);
+      row.leads += 1;
+      if (l.home_visit_status === "Booked") row.hvBooked += 1;
+      if (l.home_visit_status === "Home visit done") row.hvDone += 1;
+      if (l.home_visit_status === "Home visit and payment done") row.hvDoneAndPurchased += 1;
+    });
+    const rows = [...byAd.values()].sort((a, b) => b.leads - a.leads);
+
+    const table = create("table", { class: "data-table" });
+    table.appendChild(create("thead", {}, [
+      create("tr", {}, ["Campaign", "Ad", "Leads Generated", "HV Booked", "HV Done", "HV Done & Purchased"].map((h) => create("th", {}, [text(h)]))),
+    ]));
+    const tbody = create("tbody");
+    if (!rows.length) {
+      tbody.appendChild(create("tr", {}, [create("td", { colspan: "6" }, [text("No leads in this range.")])]));
+    }
+    rows.forEach((r) => {
+      tbody.appendChild(create("tr", {}, [
+        create("td", { class: "wrap" }, [text(r.campaign)]),
+        create("td", { class: "wrap" }, [text(r.ad)]),
+        create("td", { class: "num" }, [text(String(r.leads))]),
+        create("td", { class: "num" }, [text(String(r.hvBooked))]),
+        create("td", { class: "num" }, [text(String(r.hvDone))]),
+        create("td", { class: "num" }, [text(String(r.hvDoneAndPurchased))]),
+      ]));
+    });
+    table.appendChild(tbody);
+    return table;
+  }
+
+  function buildCampaignGroupedChartData(leads) {
+    const byCampaign = new Map();
+    leads.forEach((l) => {
+      const camp = l.campaign_name || "(no campaign)";
+      const ad = l.ad_name || "(no ad)";
+      if (!byCampaign.has(camp)) byCampaign.set(camp, new Map());
+      const adMap = byCampaign.get(camp);
+      adMap.set(ad, (adMap.get(ad) || 0) + 1);
+    });
+
+    const campaigns = [...byCampaign.entries()].sort((a, b) => {
+      const totalA = [...a[1].values()].reduce((s, v) => s + v, 0);
+      const totalB = [...b[1].values()].reduce((s, v) => s + v, 0);
+      return totalB - totalA;
+    });
+
+    const labels = [];
+    const labelCampaign = [];
+    campaigns.forEach(([camp, adMap]) => {
+      [...adMap.entries()].sort((a, b) => b[1] - a[1]).forEach(([ad]) => {
+        labels.push(ad);
+        labelCampaign.push(camp);
+      });
+    });
+
+    const datasets = campaigns.map(([camp, adMap], i) => ({
+      label: camp,
+      backgroundColor: CAMPAIGN_COLORS[i % CAMPAIGN_COLORS.length],
+      borderRadius: 1,
+      maxBarThickness: 40,
+      data: labels.map((ad, idx) => (labelCampaign[idx] === camp ? adMap.get(ad) : null)),
+    }));
+
+    return { labels, datasets };
+  }
+
+  const barCountLabelPlugin = {
+    id: "barCountLabel",
+    afterDatasetsDraw(chart) {
+      const { ctx } = chart;
+      chart.data.datasets.forEach((dataset, di) => {
+        const meta = chart.getDatasetMeta(di);
+        meta.data.forEach((bar, i) => {
+          const value = dataset.data[i];
+          if (value === null || value === undefined) return;
+          ctx.save();
+          ctx.fillStyle = "#1C1A17";
+          ctx.font = "600 11px 'IBM Plex Mono', monospace";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+          ctx.fillText(String(value), bar.x, bar.y - 4);
+          ctx.restore();
+        });
+      });
+    },
+  };
+
+  function drawCampaignGroupedChart(leads) {
+    const ctx = el("#adChart");
+    if (!ctx) return;
+    if (chartInstance) {
+      chartInstance.destroy();
+      chartInstance = null;
+    }
+
+    const { labels, datasets } = buildCampaignGroupedChartData(leads);
+    const monoFont = { family: "'IBM Plex Mono', monospace", size: 11 };
+
+    chartInstance = new Chart(ctx, {
+      type: "bar",
+      data: { labels, datasets },
+      plugins: [barCountLabelPlugin],
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 22 } },
+        plugins: {
+          legend: {
+            display: datasets.length > 1,
+            position: "top",
+            labels: { font: { family: "'Inter', sans-serif", size: 11 }, color: "#726C62", boxWidth: 12 },
+          },
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { precision: 0, font: monoFont, color: "#726C62" },
+            grid: { color: "#E1D8C5" },
+          },
+          x: {
+            ticks: { autoSkip: false, maxRotation: 45, minRotation: 0, font: { family: "'Inter', sans-serif", size: 11 }, color: "#726C62" },
+            grid: { display: false },
+          },
+        },
+      },
+    });
+  }
+
+  function renderDashboard() {
+    const content = el("#content");
+    const leads = leadsForDashboard();
+    el("#kpiLeadsInView").textContent = leads.length;
+
+    const summary = computeDashboardSummary(leads);
+    const summaryPanel = create("div", { class: "panel" }, [
+      create("h3", {}, [text(`Summary — ${dashboardPeriodLabel()}`)]),
+      buildDashboardDateRangeField(),
+      create("div", { class: "kpi-grid" }, [
+        buildKpiCard(String(summary.leadsGenerated), "Leads Generated"),
+        buildKpiCard(String(summary.hvBooked), "HV Booked"),
+        buildKpiCard(String(summary.hvDone), "HV Done"),
+        buildKpiCard(String(summary.hvDoneAndPurchased), "HV Done & Purchased"),
       ]),
     ]);
-    content.appendChild(chartPanel);
+    content.appendChild(summaryPanel);
 
-    drawChart(rows);
-
-    const clientPanel = create("div", { class: "panel" }, [
-      create("h3", {}, [text("Client Details")]),
-      create("div", { class: "table-scroll" }, [buildClientDetailsTable(leads)]),
+    const chartPanel = create("div", { class: "panel" }, [
+      create("h3", {}, [text("Leads by Ad, Grouped by Campaign")]),
+      create("div", { class: "chart-wrap chart-wrap-lg" }, [create("canvas", { id: "adChart" })]),
     ]);
-    content.appendChild(clientPanel);
+    content.appendChild(chartPanel);
+    drawCampaignGroupedChart(leads);
+
+    const tablePanel = create("div", { class: "panel" }, [
+      create("h3", {}, [text("Per-Ad Summary")]),
+      create("div", { class: "table-scroll" }, [buildDashboardAdTable(leads)]),
+    ]);
+    content.appendChild(tablePanel);
   }
 
   function buildCountTable(rows, dimLabel) {
@@ -317,29 +516,6 @@
       tbody.appendChild(create("tr", {}, [
         create("td", { class: "wrap" }, [text(name)]),
         create("td", { class: "num" }, [text(String(count))]),
-      ]));
-    });
-    table.appendChild(tbody);
-    return table;
-  }
-
-  function buildClientDetailsTable(leads) {
-    const table = create("table", { class: "data-table" });
-    table.appendChild(create("thead", {}, [
-      create("tr", {}, ["Date", "Full Name", "Phone", "Street Address", "Email", "Lead ID"].map((h) => create("th", {}, [text(h)]))),
-    ]));
-    const tbody = create("tbody");
-    if (!leads.length) {
-      tbody.appendChild(create("tr", {}, [create("td", { colspan: "6" }, [text("No leads match this filter.")])]));
-    }
-    leads.forEach((l) => {
-      tbody.appendChild(create("tr", {}, [
-        create("td", { class: "num" }, [text(l.created_date)]),
-        create("td", { class: "wrap" }, [text(l.full_name)]),
-        create("td", { class: "phone-cell" }, [text(l.phone)]),
-        create("td", { class: "wrap" }, [text(l.street_address)]),
-        create("td", {}, [text(l.email)]),
-        create("td", { class: "id-cell" }, [text(l.id)]),
       ]));
     });
     table.appendChild(tbody);
@@ -385,15 +561,15 @@
     });
   }
 
-  // ---------- Client Tracking sub-tab ----------
+  // ---------- FB Leads sub-tab ----------
 
   function renderClientTracking(leads) {
     const content = el("#content");
-    const downloadBtn = create("button", { class: "btn btn-outline", onclick: downloadTrackingExcel }, [text("Download Excel")]);
+    const downloadBtn = create("button", { class: "btn btn-outline", onclick: openDownloadModal }, [text("Download Excel")]);
 
     const panel = create("div", { class: "panel" }, [
       create("div", { class: "panel-header-row" }, [
-        create("h3", {}, [text("Client Tracking")]),
+        create("h3", {}, [text("FB Leads")]),
         downloadBtn,
       ]),
       create("div", { class: "table-scroll" }, [buildTrackingTable(leads)]),
@@ -401,14 +577,69 @@
     content.appendChild(panel);
   }
 
-  function downloadTrackingExcel() {
-    const params = new URLSearchParams({
-      area: state.selectedNav || "",
-      month: state.selectedMonth,
-      campaign: state.selectedCampaign === "all" ? "" : state.selectedCampaign,
-      status: state.selectedStatus,
+  function openDownloadModal() {
+    const modal = el("#downloadModal");
+    el("#downloadCode").value = "";
+    el("#downloadResult").innerHTML = "";
+    modal.classList.remove("hidden");
+    el("#downloadCode").focus();
+  }
+
+  async function submitDownload() {
+    const code = el("#downloadCode").value;
+    const resultBox = el("#downloadResult");
+    const submitBtn = el("#submitDownload");
+    resultBox.innerHTML = "";
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Checking…";
+
+    try {
+      const res = await fetch("/api/export/tracking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          area: state.selectedNav || "",
+          month: state.selectedMonth,
+          campaign: state.selectedCampaign === "all" ? "" : state.selectedCampaign,
+          status: state.selectedStatus,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Request failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename=([^;]+)/);
+      const filename = match ? match[1].trim() : "fb-leads.xlsx";
+
+      const url = URL.createObjectURL(blob);
+      const a = create("a", { href: url, download: filename });
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+
+      el("#downloadModal").classList.add("hidden");
+      showToast("Download started");
+    } catch (err) {
+      resultBox.innerHTML = `<div class="err">${escapeHTML(err.message)}</div>`;
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Download";
+    }
+  }
+
+  function setupDownloadModal() {
+    el("#cancelDownload").addEventListener("click", () => el("#downloadModal").classList.add("hidden"));
+    el("#downloadModal").addEventListener("click", (e) => {
+      if (e.target === el("#downloadModal")) el("#downloadModal").classList.add("hidden");
     });
-    window.location.href = `/api/export/tracking?${params.toString()}`;
+    el("#submitDownload").addEventListener("click", submitDownload);
+    el("#downloadCode").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); submitDownload(); }
+    });
   }
 
   function applyStatusBadgeClass(badge, status) {
@@ -492,7 +723,26 @@
       const badge = create("span", { class: "status-badge" }, [dot, statusSelect]);
       applyStatusBadgeClass(badge, l.status);
 
-      const attemptsCell = create("td", { class: "num" }, [text(`Attempt ${l.attempts}`)]);
+      const attemptsValue = create("span", { class: "num" }, [text(String(l.attempts))]);
+      const attemptsBtn = create("button", { class: "attempts-btn", type: "button", title: "Log an attempt" }, [text("+")]);
+      attemptsBtn.addEventListener("click", async () => {
+        attemptsBtn.disabled = true;
+        try {
+          const updated = await fetchJSON(`/api/leads/${encodeURIComponent(l.id)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ increment_attempts: true }),
+          });
+          l.attempts = updated.attempts;
+          attemptsValue.textContent = String(l.attempts);
+          showToast("Attempt logged");
+        } catch (err) {
+          alert("Could not log attempt: " + err.message);
+        } finally {
+          attemptsBtn.disabled = false;
+        }
+      });
+      const attemptsCell = create("td", { class: "attempts-cell" }, [attemptsValue, attemptsBtn]);
 
       statusSelect.addEventListener("change", async () => {
         const newStatus = statusSelect.value;
@@ -503,9 +753,7 @@
             body: JSON.stringify({ status: newStatus }),
           });
           l.status = updated.status;
-          l.attempts = updated.attempts;
           applyStatusBadgeClass(badge, l.status);
-          attemptsCell.textContent = `Attempt ${l.attempts}`;
           showToast("Status saved");
         } catch (err) {
           alert("Could not save status: " + err.message);
@@ -754,28 +1002,8 @@
 
     const hvFiltered = leads.filter((l) => state.hvStatusFilter === "all" || l.home_visit_status === state.hvStatusFilter);
 
-    const byCampaign = state.selectedCampaign === "all";
-    const dimLabel = byCampaign ? "Campaign" : "Ad";
-    const dimKey = byCampaign ? "campaign_name" : "ad_name";
-    const counts = new Map();
-    hvFiltered.forEach((l) => {
-      const key = l[dimKey] || `(no ${dimLabel.toLowerCase()})`;
-      counts.set(key, (counts.get(key) || 0) + 1);
-    });
-    const rows = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-
-    const chartPanel = create("div", { class: "panel" }, [
-      create("div", { class: "hv-filter-row" }, [buildHVStatusFilterField()]),
-      create("h3", {}, [text(`Home Visits by ${dimLabel} — ${state.hvStatusFilter === "all" ? "All statuses" : state.hvStatusFilter}`)]),
-      create("div", { class: "dashboard-grid" }, [
-        create("div", { class: "chart-wrap" }, [create("canvas", { id: "adChart" })]),
-        create("div", { class: "table-scroll" }, [buildCountTable(rows, dimLabel)]),
-      ]),
-    ]);
-    content.appendChild(chartPanel);
-    drawChart(rows);
-
     const tablePanel = create("div", { class: "panel" }, [
+      create("div", { class: "hv-filter-row" }, [buildHVStatusFilterField()]),
       create("h3", {}, [text("Home Visit Details")]),
       create("div", { class: "table-scroll" }, [buildHomeVisitTable(hvFiltered)]),
     ]);
@@ -978,6 +1206,7 @@
 
   document.addEventListener("DOMContentLoaded", () => {
     setupUploadModal();
+    setupDownloadModal();
     setupFilterBar();
     setupSubTabs();
     loadAll().catch((err) => {

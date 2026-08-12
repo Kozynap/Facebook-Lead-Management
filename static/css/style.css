@@ -346,6 +346,7 @@ a { color: inherit; }
 }
 
 .chart-wrap { position: relative; height: 320px; }
+.chart-wrap-lg { height: 420px; }
 
 .table-scroll { overflow-x: auto; }
 
@@ -540,6 +541,28 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
 }
 .remarks-input:focus { outline: none; border-bottom-color: var(--rust); }
 
+.attempts-cell { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.attempts-btn {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: #fff;
+  color: var(--rust);
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.attempts-btn:hover { background: var(--rust); color: #fff; border-color: var(--rust); }
+.attempts-btn:disabled { opacity: 0.5; cursor: default; }
+
 .date-input {
   border: none;
   border-bottom: 1px solid var(--line);
@@ -714,6 +737,18 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
   border: 1px dashed var(--line);
   padding: 12px;
 }
+.modal-code-input {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  padding: 8px 2px;
+  color: var(--ink);
+}
+.modal-code-input:focus { outline: none; border-bottom-color: var(--rust); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 
 .upload-result { margin-top: 16px; font-size: 13px; font-family: var(--font-sans); }

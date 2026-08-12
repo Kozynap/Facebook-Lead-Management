@@ -205,12 +205,11 @@ def get_all_leads():
         conn.close()
 
 
-def update_lead(lead_id, status=None, remarks=None, home_visit_status=None, home_visit_date=None):
-    """Update status/remarks/home-visit fields for a lead. Every genuine
-    change of the main `status` (new value differs from the current one)
-    increments `attempts` by one - the running count of outreach attempts.
-    home_visit_status/home_visit_date are independent fields and never
-    touch attempts."""
+def update_lead(lead_id, status=None, remarks=None, home_visit_status=None,
+                home_visit_date=None, increment_attempts=False):
+    """Update status/remarks/home-visit fields for a lead. `attempts` is a
+    manual counter: it only moves when increment_attempts is True (the user
+    clicked the "+" button), never automatically on a status change."""
     conn = _connect()
     try:
         row = conn.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
@@ -223,7 +222,6 @@ def update_lead(lead_id, status=None, remarks=None, home_visit_status=None, home
             values.append(status)
             sets.append("status_updated_at = ?")
             values.append(datetime.now().astimezone().isoformat())
-            sets.append("attempts = attempts + 1")
         if remarks is not None:
             sets.append("remarks = ?")
             values.append(remarks)
@@ -233,6 +231,8 @@ def update_lead(lead_id, status=None, remarks=None, home_visit_status=None, home
         if home_visit_date is not None:
             sets.append("home_visit_date = ?")
             values.append(home_visit_date)
+        if increment_attempts:
+            sets.append("attempts = attempts + 1")
 
         if sets:
             values.append(lead_id)
