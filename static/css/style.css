@@ -210,7 +210,7 @@ a { color: inherit; }
 }
 .btn-primary { background: var(--rust); color: var(--paper); }
 .btn-primary:hover { background: var(--rust-deep); }
-.btn-primary:disabled { opacity: 0.6; cursor: default; }
+.btn:disabled { opacity: 0.5; cursor: default; pointer-events: none; }
 .btn-outline { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
 .btn-outline:hover { background: var(--ink); color: var(--paper); }
 
@@ -393,6 +393,19 @@ table.data-table td.wrap { white-space: normal; }
 table.data-table td.id-cell { font-family: var(--font-mono); font-size: 12px; color: var(--subink); }
 table.data-table td.phone-cell { font-family: var(--font-mono); }
 
+.pagination-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 14px 0 2px;
+}
+.pagination-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--subink);
+}
+
 /* ---------- Campaign-Area Mapping ---------- */
 
 .mapping-hint {
@@ -506,28 +519,16 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
 .status-Follow-up .dot { background: var(--amber); }
 .status-Warm      { background: var(--rust-bg); color: var(--rust-deep); }
 .status-Warm .dot { background: var(--rust); }
-.status-Booked    { background: var(--sage-bg); color: var(--sage); }
-.status-Booked .dot { background: var(--sage); }
 .status-Cold      { background: var(--brick-bg); color: var(--brick); }
 .status-Cold .dot { background: var(--brick); }
 
-/* Home Visit Status reuses the badge component but a distinct class
-   prefix, since "Booked" exists in both status vocabularies with
-   different colors. */
-.hv-status-Pending                          { background: var(--neutral-bg); color: var(--neutral); }
-.hv-status-Pending .dot                     { background: var(--neutral); }
-.hv-status-Not-Required                     { background: var(--neutral-bg); color: var(--neutral); }
-.hv-status-Not-Required .dot                { background: var(--neutral); }
-.hv-status-Cancelled                        { background: var(--brick-bg); color: var(--brick); }
-.hv-status-Cancelled .dot                   { background: var(--brick); }
-.hv-status-Booked                           { background: var(--amber-bg); color: var(--amber); }
-.hv-status-Booked .dot                      { background: var(--amber); }
-.hv-status-Home-visit-done                  { background: var(--rust-bg); color: var(--rust-deep); }
-.hv-status-Home-visit-done .dot             { background: var(--rust); }
-.hv-status-Home-visit-and-payment-done      { background: var(--sage-bg); color: var(--sage); }
-.hv-status-Home-visit-and-payment-done .dot { background: var(--sage); }
-.hv-status-No-home-visit-but-payment-done   { background: var(--sage-bg); color: var(--sage); }
-.hv-status-No-home-visit-but-payment-done .dot { background: var(--sage); }
+/* Home Visit pipeline stages, part of the same main status vocabulary. */
+.status-Home-Visit-Booked            { background: var(--amber-bg); color: var(--amber); }
+.status-Home-Visit-Booked .dot       { background: var(--amber); }
+.status-Home-Visit-Done              { background: var(--rust-bg); color: var(--rust-deep); }
+.status-Home-Visit-Done .dot         { background: var(--rust); }
+.status-Home-Visit-Done-and-Paid     { background: var(--sage-bg); color: var(--sage); }
+.status-Home-Visit-Done-and-Paid .dot { background: var(--sage); }
 
 .remarks-input {
   width: 200px;
@@ -583,6 +584,8 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
   font-size: 14px;
   border: 1px dashed var(--line);
 }
+
+.unlock-row { text-align: center; margin-top: 16px; }
 
 .hidden { display: none !important; }
 

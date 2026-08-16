@@ -63,7 +63,7 @@ def index():
     return render_template(
         "index.html",
         status_options=db.STATUS_OPTIONS,
-        home_visit_status_options=db.HOME_VISIT_STATUS_OPTIONS,
+        hv_pipeline_statuses=db.HV_PIPELINE_STATUSES,
         css_version=_asset_version("css", "style.css"),
         js_version=_asset_version("js", "app.js"),
     )
@@ -78,8 +78,14 @@ def api_meta():
         "areas": db.get_area_counts(),
         "unassigned_campaign_count": db.get_unassigned_campaign_count(),
         "status_options": db.STATUS_OPTIONS,
-        "home_visit_status_options": db.HOME_VISIT_STATUS_OPTIONS,
+        "hv_pipeline_statuses": db.HV_PIPELINE_STATUSES,
     })
+
+
+@app.route("/api/admin/verify", methods=["POST"])
+def api_admin_verify():
+    body = request.get_json(force=True, silent=True) or {}
+    return jsonify({"valid": body.get("code", "") == _admin_code()})
 
 
 @app.route("/api/leads")
@@ -130,7 +136,7 @@ def export_tracking():
 
     headers = [
         "Date", "Full Name", "Phone", "Street Address", "Customer ID", "Email",
-        "Status", "Attempts Made", "Home Visit Status", "Home Visit Date", "Remarks",
+        "Status", "Attempts Made", "Home Visit Date", "Remarks",
     ]
     wb = Workbook()
     ws = wb.active
@@ -145,7 +151,7 @@ def export_tracking():
             l["created_date"], l["full_name"], l["phone"], l["street_address"],
             l["id"], l["email"],
             l["status"], f"Attempt {l['attempts']}",
-            l["home_visit_status"], l["home_visit_date"], l["remarks"],
+            l["home_visit_date"], l["remarks"],
         ]
 
     for l in filtered:
@@ -220,21 +226,17 @@ def api_update_lead(lead_id):
     body = request.get_json(force=True, silent=True) or {}
     status = body.get("status")
     remarks = body.get("remarks")
-    home_visit_status = body.get("home_visit_status")
     home_visit_date = body.get("home_visit_date")
     increment_attempts = bool(body.get("increment_attempts"))
 
     if status is not None and status not in db.STATUS_OPTIONS:
         return jsonify({"error": "Invalid status value."}), 400
-    if home_visit_status is not None and home_visit_status not in db.HOME_VISIT_STATUS_OPTIONS:
-        return jsonify({"error": "Invalid home visit status value."}), 400
     if home_visit_date and not DATE_RE.match(home_visit_date):
         return jsonify({"error": "home_visit_date must be YYYY-MM-DD."}), 400
 
     updated = db.update_lead(
         lead_id, status=status, remarks=remarks,
-        home_visit_status=home_visit_status, home_visit_date=home_visit_date,
-        increment_attempts=increment_attempts,
+        home_visit_date=home_visit_date, increment_attempts=increment_attempts,
     )
     if updated is None:
         return jsonify({"error": "Lead not found."}), 404

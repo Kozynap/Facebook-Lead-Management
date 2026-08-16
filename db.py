@@ -12,21 +12,18 @@ from datetime import datetime
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "data", "leads.db")
 
-STATUS_OPTIONS = ["New", "Follow up", "Warm", "Booked", "Cold"]
+STATUS_OPTIONS = [
+    "New", "Follow up", "Warm",
+    "Home Visit Booked", "Home Visit Done", "Home Visit Done and Paid",
+    "Cold",
+]
 DEFAULT_STATUS = "New"
 
-AREAS = ["North Bengal", "South Bengal", "North East"]
+# Leads in one of these statuses are the ones that show up in the Home
+# Visit tab - membership is driven by the main status, not a separate field.
+HV_PIPELINE_STATUSES = ["Home Visit Booked", "Home Visit Done", "Home Visit Done and Paid"]
 
-HOME_VISIT_STATUS_OPTIONS = [
-    "Pending",
-    "Not Required",
-    "Cancelled",
-    "Booked",
-    "Home visit done",
-    "Home visit and payment done",
-    "No home visit but payment done",
-]
-DEFAULT_HOME_VISIT_STATUS = "Pending"
+AREAS = ["North Bengal", "South Bengal", "North East"]
 
 LEAD_FIELDS = [
     "id", "created_time", "created_month",
@@ -105,9 +102,13 @@ def init_db():
     if "home_visit_date" not in cols:
         conn.execute("ALTER TABLE leads ADD COLUMN home_visit_date TEXT NOT NULL DEFAULT ''")
 
-    # Any status set under the old 5-option scheme (Payment Pending/Dead/
-    # Converted) no longer matches a valid option - reset it to New so the
-    # dropdown never shows a value that isn't in the list.
+    # "Booked" (an older status value) is now split into the Home Visit
+    # pipeline stages - the closest equivalent is "Home Visit Booked".
+    conn.execute("UPDATE leads SET status = 'Home Visit Booked' WHERE status = 'Booked'")
+
+    # Any other status that doesn't match a current option (e.g. values
+    # from even older schemes) resets to New so the dropdown never shows a
+    # value that isn't in the list.
     placeholders = ", ".join("?" for _ in STATUS_OPTIONS)
     conn.execute(
         f"UPDATE leads SET status = ? WHERE status NOT IN ({placeholders})",
@@ -160,12 +161,12 @@ def upsert_lead(record, imported_at, source_zip):
         else:
             fields = LEAD_FIELDS + [
                 "status", "remarks", "attempts",
-                "home_visit_status", "home_visit_date", "status_updated_at",
+                "home_visit_date", "status_updated_at",
                 "first_imported_at", "last_seen_at", "source_zip",
             ]
             values = [record[f] for f in LEAD_FIELDS] + [
                 DEFAULT_STATUS, "", 0,
-                DEFAULT_HOME_VISIT_STATUS, "", None, imported_at, imported_at, source_zip,
+                "", None, imported_at, imported_at, source_zip,
             ]
             placeholders = ", ".join("?" for _ in fields)
             conn.execute(
@@ -188,7 +189,7 @@ def get_all_leads():
                    leads.ad_name, leads.campaign_name,
                    leads.email, leads.full_name, leads.phone, leads.street_address,
                    leads.status, leads.remarks, leads.attempts,
-                   leads.home_visit_status, leads.home_visit_date,
+                   leads.home_visit_date,
                    campaign_areas.area AS area
             FROM leads
             LEFT JOIN campaign_areas ON leads.campaign_name = campaign_areas.campaign_name
@@ -205,9 +206,8 @@ def get_all_leads():
         conn.close()
 
 
-def update_lead(lead_id, status=None, remarks=None, home_visit_status=None,
-                home_visit_date=None, increment_attempts=False):
-    """Update status/remarks/home-visit fields for a lead. `attempts` is a
+def update_lead(lead_id, status=None, remarks=None, home_visit_date=None, increment_attempts=False):
+    """Update status/remarks/home-visit-date for a lead. `attempts` is a
     manual counter: it only moves when increment_attempts is True (the user
     clicked the "+" button), never automatically on a status change."""
     conn = _connect()
@@ -225,9 +225,6 @@ def update_lead(lead_id, status=None, remarks=None, home_visit_status=None,
         if remarks is not None:
             sets.append("remarks = ?")
             values.append(remarks)
-        if home_visit_status is not None:
-            sets.append("home_visit_status = ?")
-            values.append(home_visit_status)
         if home_visit_date is not None:
             sets.append("home_visit_date = ?")
             values.append(home_visit_date)
@@ -240,7 +237,7 @@ def update_lead(lead_id, status=None, remarks=None, home_visit_status=None,
             conn.commit()
 
         row = conn.execute(
-            "SELECT id, status, remarks, attempts, home_visit_status, home_visit_date "
+            "SELECT id, status, remarks, attempts, home_visit_date "
             "FROM leads WHERE id = ?", (lead_id,)
         ).fetchone()
         return dict(row)

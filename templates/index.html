@@ -13,7 +13,7 @@
 <body>
 <script>
   window.STATUS_OPTIONS = {{ status_options | tojson }};
-  window.HOME_VISIT_STATUS_OPTIONS = {{ home_visit_status_options | tojson }};
+  window.HV_PIPELINE_STATUSES = {{ hv_pipeline_statuses | tojson }};
 </script>
 
 <div class="shell">
@@ -81,7 +81,7 @@
           <option value="all">All campaigns</option>
         </select>
       </div>
-      <div class="filter-field">
+      <div class="filter-field" id="statusFilterField">
         <label for="statusFilter">Status</label>
         <select id="statusFilter">
           <option value="all">All statuses</option>
@@ -118,16 +118,16 @@
   </div>
 </div>
 
-<div id="downloadModal" class="modal-backdrop hidden">
+<div id="codeModal" class="modal-backdrop hidden">
   <div class="modal">
     <div class="eyebrow">Admin Only</div>
-    <h2>Download FB Leads</h2>
-    <p class="modal-hint">Exporting the full lead list to Excel requires the admin code. Ask your admin if you don't have it.</p>
-    <input type="password" id="downloadCode" class="modal-code-input" placeholder="Admin code" autocomplete="off">
-    <div id="downloadResult" class="upload-result"></div>
+    <h2 id="codeModalTitle">Enter Admin Code</h2>
+    <p class="modal-hint" id="codeModalHint"></p>
+    <input type="password" id="codeModalInput" class="modal-code-input" placeholder="Admin code" autocomplete="off">
+    <div id="codeModalResult" class="upload-result"></div>
     <div class="modal-actions">
-      <button id="cancelDownload" class="btn btn-outline">Close</button>
-      <button id="submitDownload" class="btn btn-primary">Download</button>
+      <button id="cancelCodeModal" class="btn btn-outline">Cancel</button>
+      <button id="submitCodeModal" class="btn btn-primary">Submit</button>
     </div>
   </div>
 </div>

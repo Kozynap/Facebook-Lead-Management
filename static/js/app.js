@@ -1,11 +1,15 @@
 (function () {
   "use strict";
 
-  const STATUS_OPTIONS = window.STATUS_OPTIONS || ["New", "Follow up", "Warm", "Booked", "Cold"];
-  const HOME_VISIT_STATUS_OPTIONS = window.HOME_VISIT_STATUS_OPTIONS || [
-    "Pending", "Not Required", "Cancelled", "Booked",
-    "Home visit done", "Home visit and payment done", "No home visit but payment done",
+  const STATUS_OPTIONS = window.STATUS_OPTIONS || [
+    "New", "Follow up", "Warm",
+    "Home Visit Booked", "Home Visit Done", "Home Visit Done and Paid",
+    "Cold",
   ];
+  const HV_PIPELINE_STATUSES = window.HV_PIPELINE_STATUSES || [
+    "Home Visit Booked", "Home Visit Done", "Home Visit Done and Paid",
+  ];
+  const HV_PAGE_SIZE = 15;
   const NAV_MAPPING = "__mapping__";
   const NAV_OVERVIEW = "__overview__";
   const MONTH_NAMES = [
@@ -28,11 +32,12 @@
     selectedStatus: "all",
     selectedSubTab: "dashboard",
     hvStatusFilter: "all",
+    hvTablePage: 1,
     calendarMonth: { year: now.getFullYear(), month: now.getMonth() },
     ovStatusFilter: "all",
-    ovHvStatusFilter: "all",
     dashDateFrom: "",
     dashDateTo: "",
+    fbLeadsUnlocked: false,
   };
 
   let chartInstance = null;
@@ -115,6 +120,7 @@
     state.selectedCampaign = "all";
     state.selectedStatus = "all";
     state.hvStatusFilter = "all";
+    state.hvTablePage = 1;
     state.dashDateFrom = "";
     state.dashDateTo = "";
     render();
@@ -164,6 +170,10 @@
     // Dashboard uses its own local date-range filter instead (different
     // date dimension question than "which month was this lead created").
     el("#monthFilterField").classList.toggle("hidden", state.selectedSubTab === "dashboard");
+    // Home Visit tab's membership is driven by status (must be one of the
+    // 3 HV pipeline stages) and has its own local status filter for that -
+    // the global Status filter would otherwise always show zero results.
+    el("#statusFilterField").classList.toggle("hidden", state.selectedSubTab === "homevisit");
 
     const monthSel = el("#monthFilter");
     const currentMonth = state.selectedMonth;
@@ -194,11 +204,13 @@
   function setupFilterBar() {
     el("#monthFilter").addEventListener("change", (e) => {
       state.selectedMonth = e.target.value;
+      state.hvTablePage = 1;
       el("#footerPeriod").textContent = monthLabel(state.selectedMonth);
       renderContent();
     });
     el("#campaignFilter").addEventListener("change", (e) => {
       state.selectedCampaign = e.target.value;
+      state.hvTablePage = 1;
       renderContent();
     });
     el("#statusFilter").addEventListener("change", (e) => {
@@ -210,6 +222,7 @@
       state.selectedMonth = "all";
       state.selectedCampaign = "all";
       state.selectedStatus = "all";
+      state.hvTablePage = 1;
       render();
     });
   }
@@ -247,6 +260,19 @@
     return state.leads.filter((l) => l.area === state.selectedNav);
   }
 
+  // Home Visit tab membership is driven by the main status (must be one of
+  // the 3 HV pipeline stages), not the global Status filter - a lead with
+  // status "New" should never make the global filter zero-out this tab.
+  function leadsForHomeVisit() {
+    return state.leads.filter((l) => {
+      if (l.area !== state.selectedNav) return false;
+      if (!HV_PIPELINE_STATUSES.includes(l.status)) return false;
+      if (state.selectedMonth !== "all" && l.created_month !== state.selectedMonth) return false;
+      if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
+      return true;
+    });
+  }
+
   function renderContent() {
     const content = el("#content");
     content.querySelectorAll(".panel").forEach((n) => n.remove());
@@ -273,13 +299,14 @@
       return;
     }
 
-    const filtered = leadsForView();
-    el("#kpiLeadsInView").textContent = filtered.length;
-
     if (state.selectedSubTab === "tracking") {
+      const filtered = leadsForView();
+      el("#kpiLeadsInView").textContent = filtered.length;
       renderClientTracking(filtered);
     } else {
-      renderHomeVisitTab(filtered);
+      const hvLeads = leadsForHomeVisit();
+      el("#kpiLeadsInView").textContent = hvLeads.length;
+      renderHomeVisitTab(hvLeads);
     }
   }
 
@@ -324,15 +351,12 @@
     ]);
   }
 
-  // "HV Done"/"HV Done & Purchased" read the current home_visit_status
-  // vocabulary (Pending/Booked/.../Home visit done/Home visit and payment
-  // done/...). If that model changes later, remap these two lines.
   function computeDashboardSummary(leads) {
     return {
       leadsGenerated: leads.length,
-      hvBooked: leads.filter((l) => l.home_visit_status === "Booked").length,
-      hvDone: leads.filter((l) => l.home_visit_status === "Home visit done").length,
-      hvDoneAndPurchased: leads.filter((l) => l.home_visit_status === "Home visit and payment done").length,
+      hvBooked: leads.filter((l) => l.status === "Home Visit Booked").length,
+      hvDone: leads.filter((l) => l.status === "Home Visit Done").length,
+      hvDoneAndPurchased: leads.filter((l) => l.status === "Home Visit Done and Paid").length,
     };
   }
 
@@ -345,9 +369,9 @@
       if (!byAd.has(key)) byAd.set(key, { campaign: camp, ad, leads: 0, hvBooked: 0, hvDone: 0, hvDoneAndPurchased: 0 });
       const row = byAd.get(key);
       row.leads += 1;
-      if (l.home_visit_status === "Booked") row.hvBooked += 1;
-      if (l.home_visit_status === "Home visit done") row.hvDone += 1;
-      if (l.home_visit_status === "Home visit and payment done") row.hvDoneAndPurchased += 1;
+      if (l.status === "Home Visit Booked") row.hvBooked += 1;
+      if (l.status === "Home Visit Done") row.hvDone += 1;
+      if (l.status === "Home Visit Done and Paid") row.hvDoneAndPurchased += 1;
     });
     const rows = [...byAd.values()].sort((a, b) => b.leads - a.leads);
 
@@ -565,6 +589,21 @@
 
   function renderClientTracking(leads) {
     const content = el("#content");
+
+    if (!state.fbLeadsUnlocked) {
+      const panel = create("div", { class: "panel" }, [
+        create("h3", {}, [text("FB Leads")]),
+        create("div", { class: "empty-state" }, [
+          create("p", {}, [text("This table contains full client contact details and requires the admin code to view.")]),
+        ]),
+        create("div", { class: "unlock-row" }, [
+          create("button", { class: "btn btn-primary", onclick: unlockFbLeads }, [text("Enter Admin Code")]),
+        ]),
+      ]);
+      content.appendChild(panel);
+      return;
+    }
+
     const downloadBtn = create("button", { class: "btn btn-outline", onclick: openDownloadModal }, [text("Download Excel")]);
 
     const panel = create("div", { class: "panel" }, [
@@ -577,68 +616,103 @@
     content.appendChild(panel);
   }
 
-  function openDownloadModal() {
-    const modal = el("#downloadModal");
-    el("#downloadCode").value = "";
-    el("#downloadResult").innerHTML = "";
-    modal.classList.remove("hidden");
-    el("#downloadCode").focus();
+  // ---------- Generic admin-code modal (view-gate + download-gate) ----------
+
+  let codeModalHandler = null;
+
+  function openCodeModal({ title, hint, onSubmit }) {
+    el("#codeModalTitle").textContent = title;
+    el("#codeModalHint").textContent = hint;
+    el("#codeModalInput").value = "";
+    el("#codeModalResult").innerHTML = "";
+    codeModalHandler = onSubmit;
+    el("#codeModal").classList.remove("hidden");
+    el("#codeModalInput").focus();
   }
 
-  async function submitDownload() {
-    const code = el("#downloadCode").value;
-    const resultBox = el("#downloadResult");
-    const submitBtn = el("#submitDownload");
+  function closeCodeModal() {
+    el("#codeModal").classList.add("hidden");
+    codeModalHandler = null;
+  }
+
+  async function submitCodeModal() {
+    if (!codeModalHandler) return;
+    const code = el("#codeModalInput").value;
+    const resultBox = el("#codeModalResult");
+    const submitBtn = el("#submitCodeModal");
     resultBox.innerHTML = "";
     submitBtn.disabled = true;
-    submitBtn.textContent = "Checking…";
-
     try {
-      const res = await fetch("/api/export/tracking", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code,
-          area: state.selectedNav || "",
-          month: state.selectedMonth,
-          campaign: state.selectedCampaign === "all" ? "" : state.selectedCampaign,
-          status: state.selectedStatus,
-        }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Request failed (${res.status})`);
-      }
-      const blob = await res.blob();
-      const disposition = res.headers.get("Content-Disposition") || "";
-      const match = disposition.match(/filename=([^;]+)/);
-      const filename = match ? match[1].trim() : "fb-leads.xlsx";
-
-      const url = URL.createObjectURL(blob);
-      const a = create("a", { href: url, download: filename });
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-
-      el("#downloadModal").classList.add("hidden");
-      showToast("Download started");
+      await codeModalHandler(code);
     } catch (err) {
       resultBox.innerHTML = `<div class="err">${escapeHTML(err.message)}</div>`;
     } finally {
       submitBtn.disabled = false;
-      submitBtn.textContent = "Download";
     }
   }
 
-  function setupDownloadModal() {
-    el("#cancelDownload").addEventListener("click", () => el("#downloadModal").classList.add("hidden"));
-    el("#downloadModal").addEventListener("click", (e) => {
-      if (e.target === el("#downloadModal")) el("#downloadModal").classList.add("hidden");
+  function setupCodeModal() {
+    el("#cancelCodeModal").addEventListener("click", closeCodeModal);
+    el("#codeModal").addEventListener("click", (e) => { if (e.target === el("#codeModal")) closeCodeModal(); });
+    el("#submitCodeModal").addEventListener("click", submitCodeModal);
+    el("#codeModalInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); submitCodeModal(); }
     });
-    el("#submitDownload").addEventListener("click", submitDownload);
-    el("#downloadCode").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); submitDownload(); }
+  }
+
+  function unlockFbLeads() {
+    openCodeModal({
+      title: "Enter Admin Code",
+      hint: "The FB Leads table contains full client contact details. Enter the admin code to view it.",
+      onSubmit: async (code) => {
+        const res = await fetchJSON("/api/admin/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+        });
+        if (!res.valid) throw new Error("Incorrect code.");
+        state.fbLeadsUnlocked = true;
+        closeCodeModal();
+        renderContent();
+      },
+    });
+  }
+
+  function openDownloadModal() {
+    openCodeModal({
+      title: "Confirm Admin Code",
+      hint: "Downloading exports every client's full contact details to Excel. Enter the admin code to continue.",
+      onSubmit: async (code) => {
+        const res = await fetch("/api/export/tracking", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            code,
+            area: state.selectedNav || "",
+            month: state.selectedMonth,
+            campaign: state.selectedCampaign === "all" ? "" : state.selectedCampaign,
+            status: state.selectedStatus,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `Request failed (${res.status})`);
+        }
+        const blob = await res.blob();
+        const disposition = res.headers.get("Content-Disposition") || "";
+        const match = disposition.match(/filename=([^;]+)/);
+        const filename = match ? match[1].trim() : "fb-leads.xlsx";
+
+        const url = URL.createObjectURL(blob);
+        const a = create("a", { href: url, download: filename });
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        closeCodeModal();
+        showToast("Download started");
+      },
     });
   }
 
@@ -646,19 +720,20 @@
     badge.className = "status-badge status-" + slug(status);
   }
 
-  // Shared between Client Tracking, the Home Visit table, and the calendar's
+  // Shared between FB Leads, the Home Visit table, and the calendar's
   // reschedule editor - a change made anywhere updates the same lead object
   // in state.leads, so every other view picks it up on its next render.
 
-  function buildHomeVisitStatusCell(lead, onSaved) {
+  function buildLeadStatusCell(lead, onSaved) {
     const select = create("select", { class: "status-select" });
-    HOME_VISIT_STATUS_OPTIONS.forEach((opt) => {
+    STATUS_OPTIONS.forEach((opt) => {
       select.appendChild(create("option", { value: opt }, [text(opt)]));
     });
-    select.value = lead.home_visit_status;
+    select.value = lead.status;
 
     const dot = create("span", { class: "dot" });
-    const badge = create("span", { class: "status-badge hv-status-" + slug(lead.home_visit_status) }, [dot, select]);
+    const badge = create("span", { class: "status-badge" }, [dot, select]);
+    applyStatusBadgeClass(badge, lead.status);
 
     select.addEventListener("change", async () => {
       const newVal = select.value;
@@ -666,15 +741,16 @@
         const updated = await fetchJSON(`/api/leads/${encodeURIComponent(lead.id)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ home_visit_status: newVal }),
+          body: JSON.stringify({ status: newVal }),
         });
-        lead.home_visit_status = updated.home_visit_status;
-        badge.className = "status-badge hv-status-" + slug(lead.home_visit_status);
-        showToast("Home visit status saved");
+        lead.status = updated.status;
+        applyStatusBadgeClass(badge, lead.status);
+        showToast("Status saved");
         if (onSaved) onSaved();
       } catch (err) {
-        alert("Could not save home visit status: " + err.message);
-        select.value = lead.home_visit_status;
+        alert("Could not save status: " + err.message);
+        select.value = lead.status;
+        applyStatusBadgeClass(badge, lead.status);
       }
     });
 
@@ -705,23 +781,15 @@
   function buildTrackingTable(leads) {
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
-      create("tr", {}, ["Date", "Full Name", "Phone", "Street Address", "Customer ID", "Email", "Status", "Attempts Made", "Home Visit Status", "Home Visit Date", "Remarks"].map((h) => create("th", {}, [text(h)]))),
+      create("tr", {}, ["Date", "Full Name", "Phone", "Street Address", "Customer ID", "Email", "Status", "Attempts Made", "Home Visit Date", "Remarks"].map((h) => create("th", {}, [text(h)]))),
     ]));
     const tbody = create("tbody");
     if (!leads.length) {
-      tbody.appendChild(create("tr", {}, [create("td", { colspan: "11" }, [text("No leads match this filter.")])]));
+      tbody.appendChild(create("tr", {}, [create("td", { colspan: "10" }, [text("No leads match this filter.")])]));
     }
 
     leads.forEach((l) => {
-      const statusSelect = create("select", { class: "status-select" });
-      STATUS_OPTIONS.forEach((opt) => {
-        statusSelect.appendChild(create("option", { value: opt }, [text(opt)]));
-      });
-      statusSelect.value = l.status;
-
-      const dot = create("span", { class: "dot" });
-      const badge = create("span", { class: "status-badge" }, [dot, statusSelect]);
-      applyStatusBadgeClass(badge, l.status);
+      const badge = buildLeadStatusCell(l, null);
 
       const attemptsValue = create("span", { class: "num" }, [text(String(l.attempts))]);
       const attemptsBtn = create("button", { class: "attempts-btn", type: "button", title: "Log an attempt" }, [text("+")]);
@@ -744,24 +812,6 @@
       });
       const attemptsCell = create("td", { class: "attempts-cell" }, [attemptsValue, attemptsBtn]);
 
-      statusSelect.addEventListener("change", async () => {
-        const newStatus = statusSelect.value;
-        try {
-          const updated = await fetchJSON(`/api/leads/${encodeURIComponent(l.id)}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: newStatus }),
-          });
-          l.status = updated.status;
-          applyStatusBadgeClass(badge, l.status);
-          showToast("Status saved");
-        } catch (err) {
-          alert("Could not save status: " + err.message);
-          statusSelect.value = l.status;
-          applyStatusBadgeClass(badge, l.status);
-        }
-      });
-
       const remarksInput = create("input", { type: "text", class: "remarks-input", value: l.remarks || "", placeholder: "Add a remark…" });
       const saveRemarks = async () => {
         const val = remarksInput.value;
@@ -783,7 +833,6 @@
         if (e.key === "Enter") { e.preventDefault(); remarksInput.blur(); }
       });
 
-      const hvStatusBadge = buildHomeVisitStatusCell(l, null);
       const hvDateInput = buildHomeVisitDateCell(l, null);
 
       tbody.appendChild(create("tr", {}, [
@@ -795,7 +844,6 @@
         create("td", {}, [text(l.email)]),
         create("td", {}, [badge]),
         attemptsCell,
-        create("td", {}, [hvStatusBadge]),
         create("td", {}, [hvDateInput]),
         create("td", {}, [remarksInput]),
       ]));
@@ -808,7 +856,7 @@
   // ---------- Home Visit sub-tab ----------
 
   function computeHomeVisitKPIs(areaLeads) {
-    const booked = areaLeads.filter((l) => l.home_visit_status === "Booked" && l.home_visit_date);
+    const booked = areaLeads.filter((l) => l.status === "Home Visit Booked" && l.home_visit_date);
     const today = new Date();
     const todayStr = toDateOnly(today);
     const tomorrow = new Date(today);
@@ -844,29 +892,35 @@
 
   function buildHVStatusFilterField() {
     const sel = create("select", {
-      onchange: (e) => { state.hvStatusFilter = e.target.value; renderContent(); },
+      onchange: (e) => { state.hvStatusFilter = e.target.value; state.hvTablePage = 1; renderContent(); },
     });
     sel.appendChild(create("option", { value: "all" }, [text("All statuses")]));
-    HOME_VISIT_STATUS_OPTIONS.forEach((s) => sel.appendChild(create("option", { value: s }, [text(s)])));
+    HV_PIPELINE_STATUSES.forEach((s) => sel.appendChild(create("option", { value: s }, [text(s)])));
     sel.value = state.hvStatusFilter;
     return create("div", { class: "filter-field" }, [
-      create("label", {}, [text("Home Visit Status")]),
+      create("label", {}, [text("Status")]),
       sel,
     ]);
   }
 
   function buildHomeVisitTable(leads) {
+    const totalPages = Math.max(1, Math.ceil(leads.length / HV_PAGE_SIZE));
+    if (state.hvTablePage > totalPages) state.hvTablePage = totalPages;
+    if (state.hvTablePage < 1) state.hvTablePage = 1;
+    const start = (state.hvTablePage - 1) * HV_PAGE_SIZE;
+    const pageLeads = leads.slice(start, start + HV_PAGE_SIZE);
+
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
       create("tr", {}, ["Home Visit Date", "Client Name", "Phone", "Street Address", "Email", "Customer ID", "Status"].map((h) => create("th", {}, [text(h)]))),
     ]));
     const tbody = create("tbody");
-    if (!leads.length) {
+    if (!pageLeads.length) {
       tbody.appendChild(create("tr", {}, [create("td", { colspan: "7" }, [text("No leads match this filter.")])]));
     }
-    leads.forEach((l) => {
+    pageLeads.forEach((l) => {
       const dateInput = buildHomeVisitDateCell(l, () => renderContent());
-      const statusBadge = buildHomeVisitStatusCell(l, () => renderContent());
+      const statusBadge = buildLeadStatusCell(l, () => renderContent());
       tbody.appendChild(create("tr", {}, [
         create("td", {}, [dateInput]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
@@ -878,7 +932,25 @@
       ]));
     });
     table.appendChild(tbody);
-    return table;
+
+    const prevBtn = create("button", { class: "btn btn-outline" }, [text("Previous")]);
+    prevBtn.disabled = state.hvTablePage <= 1;
+    prevBtn.addEventListener("click", () => { state.hvTablePage -= 1; renderContent(); });
+
+    const nextBtn = create("button", { class: "btn btn-outline" }, [text("Next")]);
+    nextBtn.disabled = state.hvTablePage >= totalPages;
+    nextBtn.addEventListener("click", () => { state.hvTablePage += 1; renderContent(); });
+
+    const pagination = create("div", { class: "pagination-row" }, [
+      prevBtn,
+      create("span", { class: "pagination-label" }, [text(`Page ${state.hvTablePage} of ${totalPages}`)]),
+      nextBtn,
+    ]);
+
+    return create("div", {}, [
+      create("div", { class: "table-scroll" }, [table]),
+      pagination,
+    ]);
   }
 
   function shiftCalendarMonth(delta) {
@@ -891,7 +963,7 @@
   }
 
   function buildVisitChip(lead, cellEl) {
-    const chip = create("button", { class: "visit-chip hv-status-" + slug(lead.home_visit_status) }, [
+    const chip = create("button", { class: "visit-chip status-" + slug(lead.status) }, [
       text(lead.full_name || lead.id),
     ]);
 
@@ -986,30 +1058,30 @@
     ]);
     content.appendChild(kpiPanel);
 
-    const statusCounts = new Map(HOME_VISIT_STATUS_OPTIONS.map((s) => [s, 0]));
+    const statusCounts = new Map(HV_PIPELINE_STATUSES.map((s) => [s, 0]));
     areaLeads.forEach((l) => {
-      if (statusCounts.has(l.home_visit_status)) {
-        statusCounts.set(l.home_visit_status, statusCounts.get(l.home_visit_status) + 1);
+      if (statusCounts.has(l.status)) {
+        statusCounts.set(l.status, statusCounts.get(l.status) + 1);
       }
     });
     const statusKpiPanel = create("div", { class: "panel" }, [
       create("h3", {}, [text("Home Visit Status Breakdown")]),
       create("div", { class: "kpi-grid" },
-        HOME_VISIT_STATUS_OPTIONS.map((s) => buildKpiCard(String(statusCounts.get(s)), s))
+        HV_PIPELINE_STATUSES.map((s) => buildKpiCard(String(statusCounts.get(s)), s))
       ),
     ]);
     content.appendChild(statusKpiPanel);
 
-    const hvFiltered = leads.filter((l) => state.hvStatusFilter === "all" || l.home_visit_status === state.hvStatusFilter);
+    const hvFiltered = leads.filter((l) => state.hvStatusFilter === "all" || l.status === state.hvStatusFilter);
 
     const tablePanel = create("div", { class: "panel" }, [
       create("div", { class: "hv-filter-row" }, [buildHVStatusFilterField()]),
       create("h3", {}, [text("Home Visit Details")]),
-      create("div", { class: "table-scroll" }, [buildHomeVisitTable(hvFiltered)]),
+      buildHomeVisitTable(hvFiltered),
     ]);
     content.appendChild(tablePanel);
 
-    const calendarLeads = areaLeads.filter((l) => l.home_visit_date && (state.hvStatusFilter === "all" || l.home_visit_status === state.hvStatusFilter));
+    const calendarLeads = areaLeads.filter((l) => l.home_visit_date && HV_PIPELINE_STATUSES.includes(l.status) && (state.hvStatusFilter === "all" || l.status === state.hvStatusFilter));
     const calendarPanel = create("div", { class: "panel" }, [
       create("h3", {}, [text("Home Visit Calendar")]),
       buildCalendar(calendarLeads),
@@ -1035,11 +1107,10 @@
 
     const filtered = state.leads.filter((l) => {
       if (state.ovStatusFilter !== "all" && l.status !== state.ovStatusFilter) return false;
-      if (state.ovHvStatusFilter !== "all" && l.home_visit_status !== state.ovHvStatusFilter) return false;
       return true;
     });
 
-    // KPI row: total + one card per area (respecting the two filters).
+    // KPI row: total + one card per area (respecting the filter).
     const areaCounts = new Map(state.meta.areas.map((a) => [a.name, 0]));
     let unassigned = 0;
     filtered.forEach((l) => {
@@ -1053,7 +1124,6 @@
 
     const filterRow = create("div", { class: "hv-filter-row" }, [
       buildOverviewFilterField("Lead Status", state.ovStatusFilter, STATUS_OPTIONS, (v) => { state.ovStatusFilter = v; renderContent(); }),
-      buildOverviewFilterField("Home Visit Status", state.ovHvStatusFilter, HOME_VISIT_STATUS_OPTIONS, (v) => { state.ovHvStatusFilter = v; renderContent(); }),
     ]);
 
     const kpiPanel = create("div", { class: "panel" }, [
@@ -1206,7 +1276,7 @@
 
   document.addEventListener("DOMContentLoaded", () => {
     setupUploadModal();
-    setupDownloadModal();
+    setupCodeModal();
     setupFilterBar();
     setupSubTabs();
     loadAll().catch((err) => {
