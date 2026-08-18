@@ -135,8 +135,8 @@ def export_tracking():
     ]
 
     headers = [
-        "Date", "Full Name", "Phone", "Street Address", "Customer ID", "Email",
-        "Status", "Attempts Made", "Home Visit Date", "Remarks",
+        "Date", "Customer ID", "Full Name", "Status", "Attempts Made",
+        "Home Visit Date", "Remarks", "Phone", "Street Address", "Email",
     ]
     wb = Workbook()
     ws = wb.active
@@ -148,10 +148,10 @@ def export_tracking():
 
     def row_values(l):
         return [
-            l["created_date"], l["full_name"], l["phone"], l["street_address"],
-            l["id"], l["email"],
+            l["created_date"], l["id"], l["full_name"],
             l["status"], f"Attempt {l['attempts']}",
             l["home_visit_date"], l["remarks"],
+            l["phone"], l["street_address"], l["email"],
         ]
 
     for l in filtered:

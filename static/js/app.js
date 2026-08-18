@@ -781,7 +781,7 @@
   function buildTrackingTable(leads) {
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
-      create("tr", {}, ["Date", "Full Name", "Phone", "Street Address", "Customer ID", "Email", "Status", "Attempts Made", "Home Visit Date", "Remarks"].map((h) => create("th", {}, [text(h)]))),
+      create("tr", {}, ["Date", "Customer ID", "Full Name", "Status", "Attempts Made", "Home Visit Date", "Remarks", "Phone", "Street Address", "Email"].map((h) => create("th", {}, [text(h)]))),
     ]));
     const tbody = create("tbody");
     if (!leads.length) {
@@ -837,15 +837,15 @@
 
       tbody.appendChild(create("tr", {}, [
         create("td", { class: "num" }, [text(l.created_date)]),
-        create("td", { class: "wrap" }, [text(l.full_name)]),
-        create("td", { class: "phone-cell" }, [text(l.phone)]),
-        create("td", { class: "wrap" }, [text(l.street_address)]),
         create("td", { class: "id-cell" }, [text(l.id)]),
-        create("td", {}, [text(l.email)]),
+        create("td", { class: "wrap" }, [text(l.full_name)]),
         create("td", {}, [badge]),
         attemptsCell,
         create("td", {}, [hvDateInput]),
         create("td", {}, [remarksInput]),
+        create("td", { class: "phone-cell" }, [text(l.phone)]),
+        create("td", { class: "wrap" }, [text(l.street_address)]),
+        create("td", {}, [text(l.email)]),
       ]));
     });
 
@@ -912,7 +912,7 @@
 
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
-      create("tr", {}, ["Home Visit Date", "Client Name", "Phone", "Street Address", "Email", "Customer ID", "Status"].map((h) => create("th", {}, [text(h)]))),
+      create("tr", {}, ["Home Visit Date", "Customer ID", "Client Name", "Status", "Phone", "Street Address", "Email"].map((h) => create("th", {}, [text(h)]))),
     ]));
     const tbody = create("tbody");
     if (!pageLeads.length) {
@@ -923,12 +923,12 @@
       const statusBadge = buildLeadStatusCell(l, () => renderContent());
       tbody.appendChild(create("tr", {}, [
         create("td", {}, [dateInput]),
+        create("td", { class: "id-cell" }, [text(l.id)]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
+        create("td", {}, [statusBadge]),
         create("td", { class: "phone-cell" }, [text(l.phone)]),
         create("td", { class: "wrap" }, [text(l.street_address)]),
         create("td", {}, [text(l.email)]),
-        create("td", { class: "id-cell" }, [text(l.id)]),
-        create("td", {}, [statusBadge]),
       ]));
     });
     table.appendChild(tbody);
@@ -964,7 +964,10 @@
 
   function buildVisitChip(lead, cellEl) {
     const chip = create("button", { class: "visit-chip status-" + slug(lead.status) }, [
-      text(lead.full_name || lead.id),
+      create("div", { class: "visit-chip-name" }, [text(lead.full_name || lead.id)]),
+      create("div", { class: "visit-chip-meta" }, [text(lead.street_address || "—")]),
+      create("div", { class: "visit-chip-meta" }, [text(`${lead.campaign_name || "—"} / ${lead.ad_name || "—"}`)]),
+      create("div", { class: "visit-chip-meta" }, [text(lead.area || "—")]),
     ]);
 
     chip.addEventListener("click", () => {
