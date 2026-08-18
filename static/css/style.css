@@ -393,6 +393,17 @@ table.data-table td.wrap { white-space: normal; }
 table.data-table td.id-cell { font-family: var(--font-mono); font-size: 12px; color: var(--subink); }
 table.data-table td.phone-cell { font-family: var(--font-mono); }
 
+.contact-link {
+  color: var(--rust);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  display: inline-block;
+  padding: 4px 0;
+}
+.contact-link:hover, .contact-link:focus {
+  border-bottom-color: var(--rust);
+}
+
 .pagination-row {
   display: flex;
   align-items: center;
@@ -474,14 +485,28 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
   font-size: 12.5px;
   cursor: grab;
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.campaign-card:active { cursor: grabbing; }
+.campaign-card.dragging { opacity: 0.35; }
+.campaign-card-top {
+  display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
 }
-.campaign-card:active { cursor: grabbing; }
-.campaign-card.dragging { opacity: 0.35; }
 .campaign-card-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .campaign-card .count { font-size: 11px; color: var(--subink); flex-shrink: 0; }
+.campaign-move-select {
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  padding: 5px 4px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--subink);
+  width: 100%;
+}
 
 /* ---------- Status badge / select ---------- */
 

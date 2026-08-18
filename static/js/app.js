@@ -11,6 +11,7 @@
   ];
   const HV_PAGE_SIZE = 15;
   const NAV_MAPPING = "__mapping__";
+  const MOVE_UNASSIGNED = "__unassigned__";
   const NAV_OVERVIEW = "__overview__";
   const MONTH_NAMES = [
     "January", "February", "March", "April", "May", "June",
@@ -720,6 +721,23 @@
     badge.className = "status-badge status-" + slug(status);
   }
 
+  // Facebook exports phone numbers with a "p:" prefix (e.g. "p:+91...") -
+  // strip it both for display and for the tel: link itself.
+  function cleanPhone(phone) {
+    return (phone || "").replace(/^p:/i, "").trim();
+  }
+
+  function buildPhoneLink(phone) {
+    const clean = cleanPhone(phone);
+    if (!clean) return text("");
+    return create("a", { href: `tel:${clean}`, class: "contact-link" }, [text(clean)]);
+  }
+
+  function buildEmailLink(email) {
+    if (!email) return text("");
+    return create("a", { href: `mailto:${email}`, class: "contact-link" }, [text(email)]);
+  }
+
   // Shared between FB Leads, the Home Visit table, and the calendar's
   // reschedule editor - a change made anywhere updates the same lead object
   // in state.leads, so every other view picks it up on its next render.
@@ -843,9 +861,9 @@
         attemptsCell,
         create("td", {}, [hvDateInput]),
         create("td", {}, [remarksInput]),
-        create("td", { class: "phone-cell" }, [text(l.phone)]),
+        create("td", { class: "phone-cell" }, [buildPhoneLink(l.phone)]),
         create("td", { class: "wrap" }, [text(l.street_address)]),
-        create("td", {}, [text(l.email)]),
+        create("td", {}, [buildEmailLink(l.email)]),
       ]));
     });
 
@@ -926,9 +944,9 @@
         create("td", { class: "id-cell" }, [text(l.id)]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
         create("td", {}, [statusBadge]),
-        create("td", { class: "phone-cell" }, [text(l.phone)]),
+        create("td", { class: "phone-cell" }, [buildPhoneLink(l.phone)]),
         create("td", { class: "wrap" }, [text(l.street_address)]),
-        create("td", {}, [text(l.email)]),
+        create("td", {}, [buildEmailLink(l.email)]),
       ]));
     });
     table.appendChild(tbody);
@@ -1175,9 +1193,40 @@
         body.appendChild(create("div", { class: "map-empty" }, [text("No campaigns here")]));
       }
       campaignsInCol.forEach((c) => {
+        // Drag-and-drop needs a mouse - it doesn't fire on touchscreens at
+        // all, so every card also gets a plain <select> as a tap-friendly
+        // (and keyboard-friendly) way to move it between areas.
+        const moveSelect = create("select", { class: "campaign-move-select" });
+        moveSelect.appendChild(create("option", { value: "" }, [text("Move to…")]));
+        columns.forEach((destCol) => {
+          if (destCol.area === col.area) return;
+          moveSelect.appendChild(create("option", { value: destCol.area || MOVE_UNASSIGNED }, [text(destCol.label)]));
+        });
+        moveSelect.addEventListener("click", (e) => e.stopPropagation());
+        moveSelect.addEventListener("change", async () => {
+          if (!moveSelect.value) return;
+          const destArea = moveSelect.value === MOVE_UNASSIGNED ? null : moveSelect.value;
+          const destLabel = moveSelect.options[moveSelect.selectedIndex].textContent;
+          try {
+            await fetchJSON("/api/campaign-map", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ campaign: c.name, area: destArea }),
+            });
+            showToast(`${c.name} → ${destLabel}`);
+            await loadAll();
+          } catch (err) {
+            alert("Could not move campaign: " + err.message);
+            moveSelect.value = "";
+          }
+        });
+
         const card = create("div", { class: "campaign-card", draggable: "true" }, [
-          create("span", { class: "campaign-card-name" }, [text(c.name)]),
-          create("span", { class: "count num" }, [text(String(c.count))]),
+          create("div", { class: "campaign-card-top" }, [
+            create("span", { class: "campaign-card-name" }, [text(c.name)]),
+            create("span", { class: "count num" }, [text(String(c.count))]),
+          ]),
+          moveSelect,
         ]);
         card.addEventListener("dragstart", (e) => {
           e.dataTransfer.setData("text/plain", c.name);
@@ -1217,7 +1266,7 @@
     const panel = create("div", { class: "panel" }, [
       create("h3", {}, [text("Campaign → Area Mapping")]),
       create("p", { class: "mapping-hint" }, [
-        text("Drag a campaign card into an area column to route its leads there. New campaigns from future uploads land in Unassigned until you place them."),
+        text("Drag a campaign card into an area column (or use its \"Move to…\" menu on touch devices) to route its leads there. New campaigns from future uploads land in Unassigned until you place them."),
       ]),
       gridEl,
     ]);
