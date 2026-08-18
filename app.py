@@ -39,23 +39,34 @@ def _asset_version(*rel_parts):
         return "0"
 
 
-def _admin_code():
-    """The code required to download the FB Leads export. Checked fresh on
-    every request (not cached) so an admin can change it without restarting
-    the server. Priority: ADMIN_CODE env var, then admin_code.txt (both are
-    kept out of git - see .gitignore) - falls back to a placeholder so local
-    dev works out of the box, but that placeholder must be changed before
-    any real deployment."""
-    env_code = os.environ.get("ADMIN_CODE")
+def _load_code(env_name, filename):
+    """Generic secret-code loader, checked fresh on every request (not
+    cached) so it can be changed without restarting the server. Priority:
+    env var, then the named file (both kept out of git - see .gitignore) -
+    falls back to a placeholder so local dev works out of the box, but
+    that placeholder must be changed before any real deployment."""
+    env_code = os.environ.get(env_name)
     if env_code:
         return env_code.strip()
-    code_path = os.path.join(BASE_DIR, "admin_code.txt")
+    code_path = os.path.join(BASE_DIR, filename)
     if os.path.exists(code_path):
         with open(code_path, "r", encoding="utf-8") as f:
             file_code = f.read().strip()
             if file_code:
                 return file_code
     return "changeme"
+
+
+def _view_code():
+    """Code required to view the FB Leads table."""
+    return _load_code("ADMIN_CODE", "admin_code.txt")
+
+
+def _download_code():
+    """Code required to download the FB Leads Excel export - kept
+    separate from the view code so viewing and exporting can be handed
+    to different people."""
+    return _load_code("DOWNLOAD_CODE", "download_code.txt")
 
 
 @app.route("/")
@@ -85,7 +96,7 @@ def api_meta():
 @app.route("/api/admin/verify", methods=["POST"])
 def api_admin_verify():
     body = request.get_json(force=True, silent=True) or {}
-    return jsonify({"valid": body.get("code", "").strip() == _admin_code()})
+    return jsonify({"valid": body.get("code", "").strip() == _view_code()})
 
 
 @app.route("/api/leads")
@@ -117,8 +128,8 @@ def api_campaign_map_set():
 def export_tracking():
     body = request.get_json(force=True, silent=True) or {}
 
-    if body.get("code", "").strip() != _admin_code():
-        return jsonify({"error": "Incorrect admin code."}), 403
+    if body.get("code", "").strip() != _download_code():
+        return jsonify({"error": "Incorrect download code."}), 403
 
     area = body.get("area", "")
     month = body.get("month", "all")

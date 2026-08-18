@@ -10,5 +10,6 @@ data/*.db-wal
 uploads/*
 !uploads/.gitkeep
 
-# Admin download code - never commit real secrets
+# Admin/download codes - never commit real secrets
 admin_code.txt
+download_code.txt

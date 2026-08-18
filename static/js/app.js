@@ -681,8 +681,8 @@
 
   function openDownloadModal() {
     openCodeModal({
-      title: "Confirm Admin Code",
-      hint: "Downloading exports every client's full contact details to Excel. Enter the admin code to continue.",
+      title: "Enter Download Code",
+      hint: "Downloading exports every client's full contact details to Excel. This uses a separate code from the one that unlocked viewing - enter the download code to continue.",
       onSubmit: async (code) => {
         const res = await fetch("/api/export/tracking", {
           method: "POST",
