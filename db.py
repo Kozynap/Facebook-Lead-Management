@@ -25,6 +25,12 @@ HV_PIPELINE_STATUSES = ["Home Visit Booked", "Home Visit Done", "Home Visit Done
 
 AREAS = ["North Bengal", "South Bengal", "North East"]
 
+SALES_PERSONS = [
+    "Abhishek", "Aditya", "Chinmoy", "Dipankar", "Gourav", "Joydip",
+    "Krishna", "Kuldeep", "Madhumita", "Oikantik", "Rajesh", "Sambhu",
+    "Samya", "Sarat", "Snehasish", "Sreerup", "Suman",
+]
+
 LEAD_FIELDS = [
     "id", "created_time", "created_month",
     "ad_id", "ad_name", "adset_id", "adset_name",
@@ -72,6 +78,7 @@ def init_db():
             attempts INTEGER NOT NULL DEFAULT 0,
             home_visit_status TEXT NOT NULL DEFAULT 'Pending',
             home_visit_date TEXT NOT NULL DEFAULT '',
+            sales_person TEXT NOT NULL DEFAULT '',
             status_updated_at TEXT,
             first_imported_at TEXT,
             last_seen_at TEXT,
@@ -101,6 +108,8 @@ def init_db():
         conn.execute("ALTER TABLE leads ADD COLUMN home_visit_status TEXT NOT NULL DEFAULT 'Pending'")
     if "home_visit_date" not in cols:
         conn.execute("ALTER TABLE leads ADD COLUMN home_visit_date TEXT NOT NULL DEFAULT ''")
+    if "sales_person" not in cols:
+        conn.execute("ALTER TABLE leads ADD COLUMN sales_person TEXT NOT NULL DEFAULT ''")
 
     # "Booked" (an older status value) is now split into the Home Visit
     # pipeline stages - the closest equivalent is "Home Visit Booked".
@@ -161,12 +170,12 @@ def upsert_lead(record, imported_at, source_zip):
         else:
             fields = LEAD_FIELDS + [
                 "status", "remarks", "attempts",
-                "home_visit_date", "status_updated_at",
+                "home_visit_date", "sales_person", "status_updated_at",
                 "first_imported_at", "last_seen_at", "source_zip",
             ]
             values = [record[f] for f in LEAD_FIELDS] + [
                 DEFAULT_STATUS, "", 0,
-                "", None, imported_at, imported_at, source_zip,
+                "", "", None, imported_at, imported_at, source_zip,
             ]
             placeholders = ", ".join("?" for _ in fields)
             conn.execute(
@@ -189,7 +198,7 @@ def get_all_leads():
                    leads.ad_name, leads.campaign_name,
                    leads.email, leads.full_name, leads.phone, leads.street_address,
                    leads.status, leads.remarks, leads.attempts,
-                   leads.home_visit_date,
+                   leads.home_visit_date, leads.sales_person,
                    campaign_areas.area AS area
             FROM leads
             LEFT JOIN campaign_areas ON leads.campaign_name = campaign_areas.campaign_name
@@ -206,10 +215,12 @@ def get_all_leads():
         conn.close()
 
 
-def update_lead(lead_id, status=None, remarks=None, home_visit_date=None, increment_attempts=False):
-    """Update status/remarks/home-visit-date for a lead. `attempts` is a
-    manual counter: it only moves when increment_attempts is True (the user
-    clicked the "+" button), never automatically on a status change."""
+def update_lead(lead_id, status=None, remarks=None, home_visit_date=None,
+                sales_person=None, increment_attempts=False):
+    """Update status/remarks/home-visit-date/sales-person for a lead.
+    `attempts` is a manual counter: it only moves when increment_attempts
+    is True (the user clicked the "+" button), never automatically on a
+    status change."""
     conn = _connect()
     try:
         row = conn.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
@@ -228,6 +239,9 @@ def update_lead(lead_id, status=None, remarks=None, home_visit_date=None, increm
         if home_visit_date is not None:
             sets.append("home_visit_date = ?")
             values.append(home_visit_date)
+        if sales_person is not None:
+            sets.append("sales_person = ?")
+            values.append(sales_person)
         if increment_attempts:
             sets.append("attempts = attempts + 1")
 
@@ -237,7 +251,7 @@ def update_lead(lead_id, status=None, remarks=None, home_visit_date=None, increm
             conn.commit()
 
         row = conn.execute(
-            "SELECT id, status, remarks, attempts, home_visit_date "
+            "SELECT id, status, remarks, attempts, home_visit_date, sales_person "
             "FROM leads WHERE id = ?", (lead_id,)
         ).fetchone()
         return dict(row)

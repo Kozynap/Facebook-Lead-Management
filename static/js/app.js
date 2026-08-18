@@ -9,6 +9,11 @@
   const HV_PIPELINE_STATUSES = window.HV_PIPELINE_STATUSES || [
     "Home Visit Booked", "Home Visit Done", "Home Visit Done and Paid",
   ];
+  const SALES_PERSONS = window.SALES_PERSONS || [
+    "Abhishek", "Aditya", "Chinmoy", "Dipankar", "Gourav", "Joydip",
+    "Krishna", "Kuldeep", "Madhumita", "Oikantik", "Rajesh", "Sambhu",
+    "Samya", "Sarat", "Snehasish", "Sreerup", "Suman",
+  ];
   const HV_PAGE_SIZE = 15;
   const NAV_MAPPING = "__mapping__";
   const MOVE_UNASSIGNED = "__unassigned__";
@@ -796,14 +801,38 @@
     return input;
   }
 
+  function buildSalesPersonCell(lead, onSaved) {
+    const select = create("select", { class: "sales-person-select" });
+    select.appendChild(create("option", { value: "" }, [text("Unassigned")]));
+    SALES_PERSONS.forEach((name) => select.appendChild(create("option", { value: name }, [text(name)])));
+    select.value = lead.sales_person || "";
+    select.addEventListener("change", async () => {
+      const newVal = select.value;
+      try {
+        const updated = await fetchJSON(`/api/leads/${encodeURIComponent(lead.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sales_person: newVal }),
+        });
+        lead.sales_person = updated.sales_person;
+        showToast("Sales person saved");
+        if (onSaved) onSaved();
+      } catch (err) {
+        alert("Could not save sales person: " + err.message);
+        select.value = lead.sales_person || "";
+      }
+    });
+    return select;
+  }
+
   function buildTrackingTable(leads) {
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
-      create("tr", {}, ["Date", "Phone", "Full Name", "Status", "Attempts Made", "Home Visit Date", "Remarks", "Street Address", "Email", "Customer ID"].map((h) => create("th", {}, [text(h)]))),
+      create("tr", {}, ["Date", "Phone", "Full Name", "Sales Person", "Status", "Attempts Made", "Home Visit Date", "Remarks", "Street Address", "Email", "Customer ID"].map((h) => create("th", {}, [text(h)]))),
     ]));
     const tbody = create("tbody");
     if (!leads.length) {
-      tbody.appendChild(create("tr", {}, [create("td", { colspan: "10" }, [text("No leads match this filter.")])]));
+      tbody.appendChild(create("tr", {}, [create("td", { colspan: "11" }, [text("No leads match this filter.")])]));
     }
 
     leads.forEach((l) => {
@@ -852,11 +881,13 @@
       });
 
       const hvDateInput = buildHomeVisitDateCell(l, null);
+      const salesPersonSelect = buildSalesPersonCell(l, null);
 
       tbody.appendChild(create("tr", {}, [
         create("td", { class: "num" }, [text(l.created_date)]),
         create("td", { class: "phone-cell" }, [buildPhoneLink(l.phone)]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
+        create("td", {}, [salesPersonSelect]),
         create("td", {}, [badge]),
         attemptsCell,
         create("td", {}, [hvDateInput]),
@@ -930,19 +961,21 @@
 
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
-      create("tr", {}, ["Home Visit Date", "Phone", "Client Name", "Status", "Street Address", "Email", "Customer ID"].map((h) => create("th", {}, [text(h)]))),
+      create("tr", {}, ["Home Visit Date", "Phone", "Client Name", "Sales Person", "Status", "Street Address", "Email", "Customer ID"].map((h) => create("th", {}, [text(h)]))),
     ]));
     const tbody = create("tbody");
     if (!pageLeads.length) {
-      tbody.appendChild(create("tr", {}, [create("td", { colspan: "7" }, [text("No leads match this filter.")])]));
+      tbody.appendChild(create("tr", {}, [create("td", { colspan: "8" }, [text("No leads match this filter.")])]));
     }
     pageLeads.forEach((l) => {
       const dateInput = buildHomeVisitDateCell(l, () => renderContent());
       const statusBadge = buildLeadStatusCell(l, () => renderContent());
+      const salesPersonSelect = buildSalesPersonCell(l, () => renderContent());
       tbody.appendChild(create("tr", {}, [
         create("td", {}, [dateInput]),
         create("td", { class: "phone-cell" }, [buildPhoneLink(l.phone)]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
+        create("td", {}, [salesPersonSelect]),
         create("td", {}, [statusBadge]),
         create("td", { class: "wrap" }, [text(l.street_address)]),
         create("td", {}, [buildEmailLink(l.email)]),
@@ -982,7 +1015,8 @@
 
   function buildVisitChip(lead, cellEl) {
     const chip = create("button", { class: "visit-chip status-" + slug(lead.status) }, [
-      create("div", { class: "visit-chip-name" }, [text(lead.full_name || lead.id)]),
+      create("div", { class: "visit-chip-name" }, [text(`Client: ${lead.full_name || lead.id}`)]),
+      create("div", { class: "visit-chip-sales" }, [text(`Sales: ${lead.sales_person || "Unassigned"}`)]),
       create("div", { class: "visit-chip-meta" }, [text(lead.street_address || "—")]),
       create("div", { class: "visit-chip-meta" }, [text(`${lead.campaign_name || "—"} / ${lead.ad_name || "—"}`)]),
       create("div", { class: "visit-chip-meta" }, [text(lead.area || "—")]),

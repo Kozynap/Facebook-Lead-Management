@@ -75,6 +75,7 @@ def index():
         "index.html",
         status_options=db.STATUS_OPTIONS,
         hv_pipeline_statuses=db.HV_PIPELINE_STATUSES,
+        sales_persons=db.SALES_PERSONS,
         css_version=_asset_version("css", "style.css"),
         js_version=_asset_version("js", "app.js"),
     )
@@ -146,7 +147,7 @@ def export_tracking():
     ]
 
     headers = [
-        "Date", "Phone", "Full Name", "Status", "Attempts Made",
+        "Date", "Phone", "Full Name", "Sales Person", "Status", "Attempts Made",
         "Home Visit Date", "Remarks", "Street Address", "Email", "Customer ID",
     ]
     wb = Workbook()
@@ -159,7 +160,7 @@ def export_tracking():
 
     def row_values(l):
         return [
-            l["created_date"], l["phone"], l["full_name"],
+            l["created_date"], l["phone"], l["full_name"], l["sales_person"],
             l["status"], f"Attempt {l['attempts']}",
             l["home_visit_date"], l["remarks"],
             l["street_address"], l["email"], l["id"],
@@ -238,16 +239,20 @@ def api_update_lead(lead_id):
     status = body.get("status")
     remarks = body.get("remarks")
     home_visit_date = body.get("home_visit_date")
+    sales_person = body.get("sales_person")
     increment_attempts = bool(body.get("increment_attempts"))
 
     if status is not None and status not in db.STATUS_OPTIONS:
         return jsonify({"error": "Invalid status value."}), 400
     if home_visit_date and not DATE_RE.match(home_visit_date):
         return jsonify({"error": "home_visit_date must be YYYY-MM-DD."}), 400
+    if sales_person and sales_person not in db.SALES_PERSONS:
+        return jsonify({"error": "Invalid sales person."}), 400
 
     updated = db.update_lead(
         lead_id, status=status, remarks=remarks,
-        home_visit_date=home_visit_date, increment_attempts=increment_attempts,
+        home_visit_date=home_visit_date, sales_person=sales_person,
+        increment_attempts=increment_attempts,
     )
     if updated is None:
         return jsonify({"error": "Lead not found."}), 404
