@@ -638,7 +638,7 @@
 
   async function submitCodeModal() {
     if (!codeModalHandler) return;
-    const code = el("#codeModalInput").value;
+    const code = el("#codeModalInput").value.trim();
     const resultBox = el("#codeModalResult");
     const submitBtn = el("#submitCodeModal");
     resultBox.innerHTML = "";

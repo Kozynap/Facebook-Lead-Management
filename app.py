@@ -85,7 +85,7 @@ def api_meta():
 @app.route("/api/admin/verify", methods=["POST"])
 def api_admin_verify():
     body = request.get_json(force=True, silent=True) or {}
-    return jsonify({"valid": body.get("code", "") == _admin_code()})
+    return jsonify({"valid": body.get("code", "").strip() == _admin_code()})
 
 
 @app.route("/api/leads")
@@ -117,7 +117,7 @@ def api_campaign_map_set():
 def export_tracking():
     body = request.get_json(force=True, silent=True) or {}
 
-    if body.get("code", "") != _admin_code():
+    if body.get("code", "").strip() != _admin_code():
         return jsonify({"error": "Incorrect admin code."}), 403
 
     area = body.get("area", "")
