@@ -404,6 +404,22 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
   border-bottom-color: var(--rust);
 }
 
+.phone-cell-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.whatsapp-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--sage);
+  flex-shrink: 0;
+  padding: 2px;
+}
+.whatsapp-link:hover, .whatsapp-link:focus { color: var(--rust); }
+.whatsapp-link svg { width: 18px; height: 18px; display: block; }
+
 .pagination-row {
   display: flex;
   align-items: center;

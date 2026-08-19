@@ -756,6 +756,37 @@
     return create("a", { href: `mailto:${email}`, class: "contact-link" }, [text(email)]);
   }
 
+  const WHATSAPP_ICON_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.02 2 11c0 2.25.93 4.29 2.45 5.85L3 22l5.4-1.42C9.77 21.15 10.87 21.4 12 21.4c5.52 0 10-4.02 10-9s-4.48-9-10-9zm0 16.4c-1.02 0-2.02-.22-2.94-.62l-.34-.15-3.2.84.85-3.1-.18-.32C5.5 14.4 5 12.75 5 11c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7z"/><path d="M9.2 8.3c-.15-.34-.31-.35-.45-.35h-.38c-.14 0-.35.05-.53.25-.18.2-.7.68-.7 1.67 0 .98.72 1.93.82 2.06.1.14 1.42 2.16 3.48 3.02 1.72.72 2.07.58 2.44.54.37-.03 1.2-.49 1.37-.96.17-.47.17-.87.12-.96-.05-.08-.19-.13-.38-.23-.2-.1-1.2-.59-1.38-.66-.19-.07-.32-.1-.46.1-.14.2-.53.66-.65.79-.12.14-.24.15-.44.05-.2-.1-.85-.31-1.62-1-.6-.53-1-1.19-1.12-1.39-.12-.2-.01-.31.08-.41.09-.09.2-.24.3-.36.1-.11.13-.19.2-.32.06-.14.03-.26-.02-.36-.05-.1-.44-1.1-.63-1.5z"/></svg>';
+
+  // wa.me needs digits only - country code + number, no "+"/spaces/dashes.
+  function whatsAppDigits(phone) {
+    return cleanPhone(phone).replace(/\D/g, "");
+  }
+
+  // Starting text for the WhatsApp draft - edit this to change the wording.
+  // WhatsApp has no link parameter for attaching a file, so any attachment
+  // still has to be added by hand once the chat opens (see conversation).
+  function buildWhatsAppMessage(lead) {
+    return `Hi ${lead.full_name || "there"}, this is Kozynap regarding your enquiry.`;
+  }
+
+  function buildWhatsAppLink(lead) {
+    const digits = whatsAppDigits(lead.phone);
+    if (!digits) return null;
+    const url = `https://wa.me/${digits}?text=${encodeURIComponent(buildWhatsAppMessage(lead))}`;
+    return create("a", {
+      href: url, class: "whatsapp-link", target: "_blank", rel: "noopener",
+      title: "Open WhatsApp with a drafted message", html: WHATSAPP_ICON_SVG,
+    });
+  }
+
+  function buildPhoneCell(lead) {
+    const children = [buildPhoneLink(lead.phone)];
+    const wa = buildWhatsAppLink(lead);
+    if (wa) children.push(wa);
+    return create("span", { class: "phone-cell-inner" }, children);
+  }
+
   // Shared between FB Leads, the Home Visit table, and the calendar's
   // reschedule editor - a change made anywhere updates the same lead object
   // in state.leads, so every other view picks it up on its next render.
@@ -1001,7 +1032,7 @@
 
       tbody.appendChild(create("tr", {}, [
         create("td", { class: "num" }, [text(l.created_date)]),
-        create("td", { class: "phone-cell" }, [buildPhoneLink(l.phone)]),
+        create("td", { class: "phone-cell" }, [buildPhoneCell(l)]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
         create("td", {}, [salesPersonSelect]),
         create("td", { class: "wrap" }, [statusCell]),
@@ -1091,7 +1122,7 @@
       const modelNameInput = buildModelNameCell(l, null);
       tbody.appendChild(create("tr", {}, [
         create("td", {}, [dateInput]),
-        create("td", { class: "phone-cell" }, [buildPhoneLink(l.phone)]),
+        create("td", { class: "phone-cell" }, [buildPhoneCell(l)]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
         create("td", {}, [salesPersonSelect]),
         create("td", { class: "wrap" }, [statusCell]),
