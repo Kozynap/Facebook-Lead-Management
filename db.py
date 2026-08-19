@@ -15,9 +15,26 @@ DB_PATH = os.path.join(BASE_DIR, "data", "leads.db")
 STATUS_OPTIONS = [
     "New", "Follow up", "Warm",
     "Home Visit Booked", "Home Visit Done", "Home Visit Done and Paid",
-    "Cold",
+    "Bulk Order", "Cold",
 ]
 DEFAULT_STATUS = "New"
+
+# A lead's `status` column can hold more than one of the above, joined by
+# commas (e.g. "Warm,Bulk Order") - the UI sets this via checkboxes rather
+# than a single dropdown value.
+UNSET = object()
+
+
+def normalize_status(value, default=None):
+    """Dedupe a comma-separated status string and put it in canonical
+    STATUS_OPTIONS order, so the same combination always serializes the
+    same way. Unrecognised parts are silently dropped; `default` (or
+    DEFAULT_STATUS) is returned if nothing valid remains."""
+    parts = {p.strip() for p in (value or "").split(",") if p.strip()}
+    ordered = [s for s in STATUS_OPTIONS if s in parts]
+    if ordered:
+        return ",".join(ordered)
+    return default if default is not None else DEFAULT_STATUS
 
 # Leads in one of these statuses are the ones that show up in the Home
 # Visit tab - membership is driven by the main status, not a separate field.
@@ -110,19 +127,24 @@ def init_db():
         conn.execute("ALTER TABLE leads ADD COLUMN home_visit_date TEXT NOT NULL DEFAULT ''")
     if "sales_person" not in cols:
         conn.execute("ALTER TABLE leads ADD COLUMN sales_person TEXT NOT NULL DEFAULT ''")
+    if "sales_value" not in cols:
+        conn.execute("ALTER TABLE leads ADD COLUMN sales_value REAL")
+    if "model_name" not in cols:
+        conn.execute("ALTER TABLE leads ADD COLUMN model_name TEXT NOT NULL DEFAULT ''")
 
     # "Booked" (an older status value) is now split into the Home Visit
     # pipeline stages - the closest equivalent is "Home Visit Booked".
     conn.execute("UPDATE leads SET status = 'Home Visit Booked' WHERE status = 'Booked'")
 
-    # Any other status that doesn't match a current option (e.g. values
-    # from even older schemes) resets to New so the dropdown never shows a
-    # value that isn't in the list.
-    placeholders = ", ".join("?" for _ in STATUS_OPTIONS)
-    conn.execute(
-        f"UPDATE leads SET status = ? WHERE status NOT IN ({placeholders})",
-        [DEFAULT_STATUS] + STATUS_OPTIONS,
-    )
+    # Normalize every stored status through the same comma-separated,
+    # canonically-ordered form normalize_status() produces on save - covers
+    # stray values from older schemes (reset to New) as well as rows saved
+    # before STATUS_OPTIONS grew to include a newly added status.
+    rows = conn.execute("SELECT id, status FROM leads").fetchall()
+    for r in rows:
+        cleaned = normalize_status(r["status"])
+        if cleaned != r["status"]:
+            conn.execute("UPDATE leads SET status = ? WHERE id = ?", (cleaned, r["id"]))
 
     conn.commit()
     conn.close()
@@ -199,6 +221,7 @@ def get_all_leads():
                    leads.email, leads.full_name, leads.phone, leads.street_address,
                    leads.status, leads.remarks, leads.attempts,
                    leads.home_visit_date, leads.sales_person,
+                   leads.sales_value, leads.model_name,
                    campaign_areas.area AS area
             FROM leads
             LEFT JOIN campaign_areas ON leads.campaign_name = campaign_areas.campaign_name
@@ -216,11 +239,15 @@ def get_all_leads():
 
 
 def update_lead(lead_id, status=None, remarks=None, home_visit_date=None,
-                sales_person=None, increment_attempts=False):
-    """Update status/remarks/home-visit-date/sales-person for a lead.
-    `attempts` is a manual counter: it only moves when increment_attempts
-    is True (the user clicked the "+" button), never automatically on a
-    status change."""
+                sales_person=None, increment_attempts=False, decrement_attempts=False,
+                sales_value=UNSET, model_name=None):
+    """Update status/remarks/home-visit-date/sales-person/sales-value/model
+    for a lead. `attempts` is a manual counter: it only moves when
+    increment_attempts or decrement_attempts is True (the user clicked the
+    "+"/"-" button), never automatically on a status change, and never
+    drops below zero. `sales_value` defaults to the UNSET sentinel (rather
+    than None) so a caller can still explicitly clear it to NULL by
+    passing None."""
     conn = _connect()
     try:
         row = conn.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
@@ -242,8 +269,16 @@ def update_lead(lead_id, status=None, remarks=None, home_visit_date=None,
         if sales_person is not None:
             sets.append("sales_person = ?")
             values.append(sales_person)
+        if model_name is not None:
+            sets.append("model_name = ?")
+            values.append(model_name)
+        if sales_value is not UNSET:
+            sets.append("sales_value = ?")
+            values.append(sales_value)
         if increment_attempts:
             sets.append("attempts = attempts + 1")
+        if decrement_attempts:
+            sets.append("attempts = MAX(attempts - 1, 0)")
 
         if sets:
             values.append(lead_id)
@@ -251,8 +286,8 @@ def update_lead(lead_id, status=None, remarks=None, home_visit_date=None,
             conn.commit()
 
         row = conn.execute(
-            "SELECT id, status, remarks, attempts, home_visit_date, sales_person "
-            "FROM leads WHERE id = ?", (lead_id,)
+            "SELECT id, status, remarks, attempts, home_visit_date, sales_person, "
+            "sales_value, model_name FROM leads WHERE id = ?", (lead_id,)
         ).fetchone()
         return dict(row)
     finally:

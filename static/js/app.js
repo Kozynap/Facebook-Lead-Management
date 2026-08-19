@@ -4,7 +4,7 @@
   const STATUS_OPTIONS = window.STATUS_OPTIONS || [
     "New", "Follow up", "Warm",
     "Home Visit Booked", "Home Visit Done", "Home Visit Done and Paid",
-    "Cold",
+    "Bulk Order", "Cold",
   ];
   const HV_PIPELINE_STATUSES = window.HV_PIPELINE_STATUSES || [
     "Home Visit Booked", "Home Visit Done", "Home Visit Done and Paid",
@@ -43,7 +43,7 @@
     ovStatusFilter: "all",
     dashDateFrom: "",
     dashDateTo: "",
-    fbLeadsUnlocked: false,
+    unlockedAreas: new Set(),
   };
 
   let chartInstance = null;
@@ -61,6 +61,12 @@
     return node;
   };
   const text = (s) => document.createTextNode(s ?? "");
+
+  // A lead's `status` field can hold multiple comma-separated tags (e.g.
+  // "Warm,Bulk Order") set via checkboxes, rather than a single value.
+  const statusList = (lead) => (lead.status || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const hasStatus = (lead, value) => statusList(lead).includes(value);
+  const hasAnyStatus = (lead, values) => statusList(lead).some((s) => values.includes(s));
 
   async function fetchJSON(url, opts) {
     const res = await fetch(url, opts);
@@ -257,7 +263,7 @@
       if (l.area !== state.selectedNav) return false;
       if (state.selectedMonth !== "all" && l.created_month !== state.selectedMonth) return false;
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
-      if (state.selectedStatus !== "all" && l.status !== state.selectedStatus) return false;
+      if (state.selectedStatus !== "all" && !hasStatus(l, state.selectedStatus)) return false;
       return true;
     });
   }
@@ -272,7 +278,7 @@
   function leadsForHomeVisit() {
     return state.leads.filter((l) => {
       if (l.area !== state.selectedNav) return false;
-      if (!HV_PIPELINE_STATUSES.includes(l.status)) return false;
+      if (!hasAnyStatus(l, HV_PIPELINE_STATUSES)) return false;
       if (state.selectedMonth !== "all" && l.created_month !== state.selectedMonth) return false;
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
       return true;
@@ -326,7 +332,7 @@
   function leadsForDashboard() {
     return leadsForArea().filter((l) => {
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
-      if (state.selectedStatus !== "all" && l.status !== state.selectedStatus) return false;
+      if (state.selectedStatus !== "all" && !hasStatus(l, state.selectedStatus)) return false;
       if (state.dashDateFrom && l.created_date < state.dashDateFrom) return false;
       if (state.dashDateTo && l.created_date > state.dashDateTo) return false;
       return true;
@@ -360,9 +366,9 @@
   function computeDashboardSummary(leads) {
     return {
       leadsGenerated: leads.length,
-      hvBooked: leads.filter((l) => l.status === "Home Visit Booked").length,
-      hvDone: leads.filter((l) => l.status === "Home Visit Done").length,
-      hvDoneAndPurchased: leads.filter((l) => l.status === "Home Visit Done and Paid").length,
+      hvBooked: leads.filter((l) => hasStatus(l, "Home Visit Booked")).length,
+      hvDone: leads.filter((l) => hasStatus(l, "Home Visit Done")).length,
+      hvDoneAndPurchased: leads.filter((l) => hasStatus(l, "Home Visit Done and Paid")).length,
     };
   }
 
@@ -375,9 +381,9 @@
       if (!byAd.has(key)) byAd.set(key, { campaign: camp, ad, leads: 0, hvBooked: 0, hvDone: 0, hvDoneAndPurchased: 0 });
       const row = byAd.get(key);
       row.leads += 1;
-      if (l.status === "Home Visit Booked") row.hvBooked += 1;
-      if (l.status === "Home Visit Done") row.hvDone += 1;
-      if (l.status === "Home Visit Done and Paid") row.hvDoneAndPurchased += 1;
+      if (hasStatus(l, "Home Visit Booked")) row.hvBooked += 1;
+      if (hasStatus(l, "Home Visit Done")) row.hvDone += 1;
+      if (hasStatus(l, "Home Visit Done and Paid")) row.hvDoneAndPurchased += 1;
     });
     const rows = [...byAd.values()].sort((a, b) => b.leads - a.leads);
 
@@ -596,7 +602,7 @@
   function renderClientTracking(leads) {
     const content = el("#content");
 
-    if (!state.fbLeadsUnlocked) {
+    if (!state.unlockedAreas.has(state.selectedNav)) {
       const panel = create("div", { class: "panel" }, [
         create("h3", {}, [text("FB Leads")]),
         create("div", { class: "empty-state" }, [
@@ -666,18 +672,29 @@
     });
   }
 
+  // Clicking away from an open status checklist closes it (and fires its
+  // pending onSaved, via the 'toggle' listener set up in buildStatusMultiCell).
+  function setupStatusMultiSelectAutoClose() {
+    document.addEventListener("click", (e) => {
+      document.querySelectorAll("details.status-multiselect[open]").forEach((d) => {
+        if (!d.contains(e.target)) d.open = false;
+      });
+    });
+  }
+
   function unlockFbLeads() {
+    const area = state.selectedNav;
     openCodeModal({
       title: "Enter Admin Code",
-      hint: "The FB Leads table contains full client contact details. Enter the admin code to view it.",
+      hint: `The FB Leads table contains full client contact details. Enter the ${area} admin code to view it.`,
       onSubmit: async (code) => {
         const res = await fetchJSON("/api/admin/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code }),
+          body: JSON.stringify({ code, area }),
         });
         if (!res.valid) throw new Error("Incorrect code.");
-        state.fbLeadsUnlocked = true;
+        state.unlockedAreas.add(area);
         closeCodeModal();
         renderContent();
       },
@@ -722,10 +739,6 @@
     });
   }
 
-  function applyStatusBadgeClass(badge, status) {
-    badge.className = "status-badge status-" + slug(status);
-  }
-
   // Facebook exports phone numbers with a "p:" prefix (e.g. "p:+91...") -
   // strip it both for display and for the tel: link itself.
   function cleanPhone(phone) {
@@ -747,19 +760,53 @@
   // reschedule editor - a change made anywhere updates the same lead object
   // in state.leads, so every other view picks it up on its next render.
 
-  function buildLeadStatusCell(lead, onSaved) {
-    const select = create("select", { class: "status-select" });
-    STATUS_OPTIONS.forEach((opt) => {
-      select.appendChild(create("option", { value: opt }, [text(opt)]));
+  function renderStatusChips(lead) {
+    const frag = document.createDocumentFragment();
+    const statuses = statusList(lead);
+    if (!statuses.length) {
+      frag.appendChild(text("—"));
+      return frag;
+    }
+    statuses.forEach((s, i) => {
+      const dot = create("span", { class: "dot" });
+      frag.appendChild(create("span", { class: "status-chip status-" + slug(s) }, [dot, text(s)]));
+      if (i < statuses.length - 1) frag.appendChild(create("span", { class: "status-sep" }, [text(", ")]));
     });
-    select.value = lead.status;
+    return frag;
+  }
 
-    const dot = create("span", { class: "dot" });
-    const badge = create("span", { class: "status-badge" }, [dot, select]);
-    applyStatusBadgeClass(badge, lead.status);
+  // Multi-select status editor: a native <details> disclosure holding a
+  // checkbox per STATUS_OPTIONS value. Each checkbox saves immediately on
+  // change (so nothing is lost if the user navigates away mid-edit), but
+  // the heavier onSaved callback (which can re-render the whole table,
+  // e.g. when a status change moves a lead in/out of the Home Visit tab)
+  // only fires once the panel closes - otherwise checking a second box
+  // would find the panel already torn down mid-edit.
+  function buildStatusMultiCell(lead, onSaved) {
+    const details = create("details", { class: "status-multiselect" });
+    const summaryBody = create("span", { class: "status-summary" }, [renderStatusChips(lead)]);
+    details.appendChild(create("summary", {}, [summaryBody]));
 
-    select.addEventListener("change", async () => {
-      const newVal = select.value;
+    const list = create("div", { class: "status-checklist" });
+    const checkboxes = STATUS_OPTIONS.map((opt) => {
+      const cb = create("input", { type: "checkbox", value: opt });
+      cb.checked = hasStatus(lead, opt);
+      list.appendChild(create("label", { class: "status-check-row" }, [cb, text(" " + opt)]));
+      return cb;
+    });
+    details.appendChild(list);
+
+    let dirty = false;
+
+    async function saveNow() {
+      const selected = checkboxes.filter((cb) => cb.checked).map((cb) => cb.value);
+      if (!selected.length) {
+        alert("Select at least one status.");
+        checkboxes.forEach((cb) => { cb.checked = hasStatus(lead, cb.value); });
+        return;
+      }
+      const newVal = selected.join(",");
+      if (newVal === lead.status) return;
       try {
         const updated = await fetchJSON(`/api/leads/${encodeURIComponent(lead.id)}`, {
           method: "PATCH",
@@ -767,17 +814,24 @@
           body: JSON.stringify({ status: newVal }),
         });
         lead.status = updated.status;
-        applyStatusBadgeClass(badge, lead.status);
+        summaryBody.innerHTML = "";
+        summaryBody.appendChild(renderStatusChips(lead));
         showToast("Status saved");
-        if (onSaved) onSaved();
       } catch (err) {
         alert("Could not save status: " + err.message);
-        select.value = lead.status;
-        applyStatusBadgeClass(badge, lead.status);
+        checkboxes.forEach((cb) => { cb.checked = hasStatus(lead, cb.value); });
+      }
+    }
+
+    checkboxes.forEach((cb) => cb.addEventListener("change", () => { dirty = true; saveNow(); }));
+    details.addEventListener("toggle", () => {
+      if (!details.open && dirty) {
+        dirty = false;
+        if (onSaved) onSaved();
       }
     });
 
-    return badge;
+    return details;
   }
 
   function buildHomeVisitDateCell(lead, onSaved) {
@@ -825,6 +879,88 @@
     return select;
   }
 
+  function buildAttemptsCell(lead) {
+    const valueSpan = create("span", { class: "num" }, [text(String(lead.attempts))]);
+    const minusBtn = create("button", { class: "attempts-btn", type: "button", title: "Remove an attempt" }, [text("−")]);
+    const plusBtn = create("button", { class: "attempts-btn", type: "button", title: "Log an attempt" }, [text("+")]);
+
+    async function bump(field, verb) {
+      minusBtn.disabled = true;
+      plusBtn.disabled = true;
+      try {
+        const updated = await fetchJSON(`/api/leads/${encodeURIComponent(lead.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [field]: true }),
+        });
+        lead.attempts = updated.attempts;
+        valueSpan.textContent = String(lead.attempts);
+        showToast(verb);
+      } catch (err) {
+        alert("Could not update attempts: " + err.message);
+      } finally {
+        minusBtn.disabled = false;
+        plusBtn.disabled = false;
+      }
+    }
+
+    minusBtn.addEventListener("click", () => bump("decrement_attempts", "Attempt removed"));
+    plusBtn.addEventListener("click", () => bump("increment_attempts", "Attempt logged"));
+
+    return create("td", { class: "attempts-cell" }, [minusBtn, valueSpan, plusBtn]);
+  }
+
+  function buildSalesValueCell(lead, onSaved) {
+    const hasValue = lead.sales_value !== null && lead.sales_value !== undefined;
+    const input = create("input", {
+      type: "number", class: "sales-value-input", min: "0", step: "any",
+      placeholder: "—", value: hasValue ? String(lead.sales_value) : "",
+    });
+    const save = async () => {
+      const val = input.value.trim();
+      try {
+        const updated = await fetchJSON(`/api/leads/${encodeURIComponent(lead.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sales_value: val }),
+        });
+        lead.sales_value = updated.sales_value;
+        showToast("Sales value saved");
+        if (onSaved) onSaved();
+      } catch (err) {
+        alert("Could not save sales value: " + err.message);
+        input.value = lead.sales_value !== null && lead.sales_value !== undefined ? String(lead.sales_value) : "";
+      }
+    };
+    input.addEventListener("blur", save);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
+    return input;
+  }
+
+  function buildModelNameCell(lead, onSaved) {
+    const input = create("input", { type: "text", class: "model-name-input", value: lead.model_name || "", placeholder: "Add model…" });
+    const save = async () => {
+      const val = input.value;
+      if (val === (lead.model_name || "")) return;
+      try {
+        const updated = await fetchJSON(`/api/leads/${encodeURIComponent(lead.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model_name: val }),
+        });
+        lead.model_name = updated.model_name;
+        showToast("Model name saved");
+        if (onSaved) onSaved();
+      } catch (err) {
+        alert("Could not save model name: " + err.message);
+        input.value = lead.model_name || "";
+      }
+    };
+    input.addEventListener("blur", save);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
+    return input;
+  }
+
   function buildTrackingTable(leads) {
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
@@ -836,28 +972,8 @@
     }
 
     leads.forEach((l) => {
-      const badge = buildLeadStatusCell(l, null);
-
-      const attemptsValue = create("span", { class: "num" }, [text(String(l.attempts))]);
-      const attemptsBtn = create("button", { class: "attempts-btn", type: "button", title: "Log an attempt" }, [text("+")]);
-      attemptsBtn.addEventListener("click", async () => {
-        attemptsBtn.disabled = true;
-        try {
-          const updated = await fetchJSON(`/api/leads/${encodeURIComponent(l.id)}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ increment_attempts: true }),
-          });
-          l.attempts = updated.attempts;
-          attemptsValue.textContent = String(l.attempts);
-          showToast("Attempt logged");
-        } catch (err) {
-          alert("Could not log attempt: " + err.message);
-        } finally {
-          attemptsBtn.disabled = false;
-        }
-      });
-      const attemptsCell = create("td", { class: "attempts-cell" }, [attemptsValue, attemptsBtn]);
+      const statusCell = buildStatusMultiCell(l, null);
+      const attemptsCell = buildAttemptsCell(l);
 
       const remarksInput = create("input", { type: "text", class: "remarks-input", value: l.remarks || "", placeholder: "Add a remark…" });
       const saveRemarks = async () => {
@@ -888,7 +1004,7 @@
         create("td", { class: "phone-cell" }, [buildPhoneLink(l.phone)]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
         create("td", {}, [salesPersonSelect]),
-        create("td", {}, [badge]),
+        create("td", { class: "wrap" }, [statusCell]),
         attemptsCell,
         create("td", {}, [hvDateInput]),
         create("td", {}, [remarksInput]),
@@ -905,7 +1021,7 @@
   // ---------- Home Visit sub-tab ----------
 
   function computeHomeVisitKPIs(areaLeads) {
-    const booked = areaLeads.filter((l) => l.status === "Home Visit Booked" && l.home_visit_date);
+    const booked = areaLeads.filter((l) => hasStatus(l, "Home Visit Booked") && l.home_visit_date);
     const today = new Date();
     const todayStr = toDateOnly(today);
     const tomorrow = new Date(today);
@@ -961,22 +1077,26 @@
 
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
-      create("tr", {}, ["Home Visit Date", "Phone", "Client Name", "Sales Person", "Status", "Street Address", "Email", "Customer ID"].map((h) => create("th", {}, [text(h)]))),
+      create("tr", {}, ["Home Visit Date", "Phone", "Client Name", "Sales Person", "Status", "Sales Value (Rs)", "Model Name", "Street Address", "Email", "Customer ID"].map((h) => create("th", {}, [text(h)]))),
     ]));
     const tbody = create("tbody");
     if (!pageLeads.length) {
-      tbody.appendChild(create("tr", {}, [create("td", { colspan: "8" }, [text("No leads match this filter.")])]));
+      tbody.appendChild(create("tr", {}, [create("td", { colspan: "10" }, [text("No leads match this filter.")])]));
     }
     pageLeads.forEach((l) => {
       const dateInput = buildHomeVisitDateCell(l, () => renderContent());
-      const statusBadge = buildLeadStatusCell(l, () => renderContent());
+      const statusCell = buildStatusMultiCell(l, () => renderContent());
       const salesPersonSelect = buildSalesPersonCell(l, () => renderContent());
+      const salesValueInput = buildSalesValueCell(l, null);
+      const modelNameInput = buildModelNameCell(l, null);
       tbody.appendChild(create("tr", {}, [
         create("td", {}, [dateInput]),
         create("td", { class: "phone-cell" }, [buildPhoneLink(l.phone)]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
         create("td", {}, [salesPersonSelect]),
-        create("td", {}, [statusBadge]),
+        create("td", { class: "wrap" }, [statusCell]),
+        create("td", {}, [salesValueInput]),
+        create("td", { class: "wrap" }, [modelNameInput]),
         create("td", { class: "wrap" }, [text(l.street_address)]),
         create("td", {}, [buildEmailLink(l.email)]),
         create("td", { class: "id-cell" }, [text(l.id)]),
@@ -1013,8 +1133,12 @@
     renderContent();
   }
 
+  function primaryHVStatus(lead) {
+    return HV_PIPELINE_STATUSES.find((s) => hasStatus(lead, s)) || statusList(lead)[0] || "New";
+  }
+
   function buildVisitChip(lead, cellEl) {
-    const chip = create("button", { class: "visit-chip status-" + slug(lead.status) }, [
+    const chip = create("button", { class: "visit-chip status-" + slug(primaryHVStatus(lead)) }, [
       create("div", { class: "visit-chip-name" }, [text(`Client: ${lead.full_name || lead.id}`)]),
       create("div", { class: "visit-chip-sales" }, [text(`Sales: ${lead.sales_person || "Unassigned"}`)]),
       create("div", { class: "visit-chip-meta" }, [text(lead.street_address || "—")]),
@@ -1115,9 +1239,9 @@
 
     const statusCounts = new Map(HV_PIPELINE_STATUSES.map((s) => [s, 0]));
     areaLeads.forEach((l) => {
-      if (statusCounts.has(l.status)) {
-        statusCounts.set(l.status, statusCounts.get(l.status) + 1);
-      }
+      statusList(l).forEach((s) => {
+        if (statusCounts.has(s)) statusCounts.set(s, statusCounts.get(s) + 1);
+      });
     });
     const statusKpiPanel = create("div", { class: "panel" }, [
       create("h3", {}, [text("Home Visit Status Breakdown")]),
@@ -1127,7 +1251,7 @@
     ]);
     content.appendChild(statusKpiPanel);
 
-    const hvFiltered = leads.filter((l) => state.hvStatusFilter === "all" || l.status === state.hvStatusFilter);
+    const hvFiltered = leads.filter((l) => state.hvStatusFilter === "all" || hasStatus(l, state.hvStatusFilter));
 
     const tablePanel = create("div", { class: "panel" }, [
       create("div", { class: "hv-filter-row" }, [buildHVStatusFilterField()]),
@@ -1136,7 +1260,7 @@
     ]);
     content.appendChild(tablePanel);
 
-    const calendarLeads = areaLeads.filter((l) => l.home_visit_date && HV_PIPELINE_STATUSES.includes(l.status) && (state.hvStatusFilter === "all" || l.status === state.hvStatusFilter));
+    const calendarLeads = areaLeads.filter((l) => l.home_visit_date && hasAnyStatus(l, HV_PIPELINE_STATUSES) && (state.hvStatusFilter === "all" || hasStatus(l, state.hvStatusFilter)));
     const calendarPanel = create("div", { class: "panel" }, [
       create("h3", {}, [text("Home Visit Calendar")]),
       buildCalendar(calendarLeads),
@@ -1161,7 +1285,7 @@
     const content = el("#content");
 
     const filtered = state.leads.filter((l) => {
-      if (state.ovStatusFilter !== "all" && l.status !== state.ovStatusFilter) return false;
+      if (state.ovStatusFilter !== "all" && !hasStatus(l, state.ovStatusFilter)) return false;
       return true;
     });
 
@@ -1363,6 +1487,7 @@
   document.addEventListener("DOMContentLoaded", () => {
     setupUploadModal();
     setupCodeModal();
+    setupStatusMultiSelectAutoClose();
     setupFilterBar();
     setupSubTabs();
     loadAll().catch((err) => {

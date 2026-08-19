@@ -508,35 +508,73 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
   width: 100%;
 }
 
-/* ---------- Status badge / select ---------- */
+/* ---------- Status chip / multi-select ---------- */
 
-.status-badge {
+.status-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 3px 8px 3px 7px;
   border-radius: 3px;
   white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 600;
 }
-.status-badge .dot {
+.status-chip .dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
 }
-.status-select {
-  border: none;
-  background: transparent;
-  font-family: var(--font-sans);
+.status-sep {
+  color: var(--subink);
   font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  color: inherit;
-  appearance: none;
-  -webkit-appearance: none;
-  padding-right: 2px;
 }
-.status-select:focus { outline: none; }
+
+.status-multiselect { display: inline-block; }
+.status-multiselect summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+  white-space: normal;
+}
+.status-multiselect summary::-webkit-details-marker { display: none; }
+.status-multiselect summary::after {
+  content: "▾";
+  margin-left: 3px;
+  color: var(--subink);
+  font-size: 10px;
+}
+.status-multiselect .status-summary {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+}
+.status-checklist {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  white-space: normal;
+  min-width: 190px;
+}
+.status-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.status-check-row input[type="checkbox"] { cursor: pointer; }
 
 .status-New       { background: var(--neutral-bg); color: var(--neutral); }
 .status-New .dot { background: var(--neutral); }
@@ -546,6 +584,8 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
 .status-Warm .dot { background: var(--rust); }
 .status-Cold      { background: var(--brick-bg); color: var(--brick); }
 .status-Cold .dot { background: var(--brick); }
+.status-Bulk-Order      { background: var(--sage-bg); color: var(--sage); }
+.status-Bulk-Order .dot { background: var(--sage); }
 
 /* Home Visit pipeline stages, part of the same main status vocabulary. */
 .status-Home-Visit-Booked            { background: var(--amber-bg); color: var(--amber); }
@@ -611,6 +651,30 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
   min-width: 110px;
 }
 .sales-person-select:focus { outline: none; border-bottom-color: var(--rust); }
+
+.sales-value-input {
+  width: 100px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink);
+  padding: 4px 2px;
+}
+.sales-value-input:focus { outline: none; border-bottom-color: var(--rust); }
+
+.model-name-input {
+  width: 140px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: var(--ink);
+  padding: 4px 2px;
+}
+.model-name-input:focus { outline: none; border-bottom-color: var(--rust); }
 
 /* ---------- Empty state ---------- */
 

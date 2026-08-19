@@ -13,3 +13,4 @@ uploads/*
 # Admin/download codes - never commit real secrets
 admin_code.txt
 download_code.txt
+area_code_*.txt

@@ -69,6 +69,35 @@ def _download_code():
     return _load_code("DOWNLOAD_CODE", "download_code.txt")
 
 
+AREA_CODE_CONFIG = {
+    "North Bengal": ("NORTH_AREA_CODE", "area_code_north.txt"),
+    "South Bengal": ("SOUTH_AREA_CODE", "area_code_south.txt"),
+    "North East": ("NE_AREA_CODE", "area_code_ne.txt"),
+}
+
+
+def _area_code(area):
+    """Code required to view FB Leads for one specific area. The shared
+    admin code (_view_code) still works for every area as a master
+    override, on top of that area's own code."""
+    env_name, filename = AREA_CODE_CONFIG[area]
+    return _load_code(env_name, filename)
+
+
+def _status_matches(stored_status, filter_value):
+    """A lead's status column can hold multiple comma-separated tags -
+    matches if filter_value is any one of them."""
+    return filter_value in [s.strip() for s in (stored_status or "").split(",")]
+
+
+def _format_sales_value(v):
+    if v is None:
+        return ""
+    if float(v).is_integer():
+        return int(v)
+    return v
+
+
 @app.route("/")
 def index():
     return render_template(
@@ -97,7 +126,13 @@ def api_meta():
 @app.route("/api/admin/verify", methods=["POST"])
 def api_admin_verify():
     body = request.get_json(force=True, silent=True) or {}
-    return jsonify({"valid": body.get("code", "").strip() == _view_code()})
+    code = body.get("code", "").strip()
+    area = body.get("area")
+    if area in db.AREAS:
+        valid = code == _area_code(area) or code == _view_code()
+    else:
+        valid = code == _view_code()
+    return jsonify({"valid": valid})
 
 
 @app.route("/api/leads")
@@ -143,12 +178,13 @@ def export_tracking():
         if (not area or l["area"] == area)
         and (month == "all" or l["created_month"] == month)
         and (not campaign or l["campaign_name"] == campaign)
-        and (status == "all" or l["status"] == status)
+        and (status == "all" or _status_matches(l["status"], status))
     ]
 
     headers = [
         "Date", "Phone", "Full Name", "Sales Person", "Status", "Attempts Made",
-        "Home Visit Date", "Remarks", "Street Address", "Email", "Customer ID",
+        "Home Visit Date", "Sales Value (Rs)", "Model Name", "Remarks",
+        "Street Address", "Email", "Customer ID",
     ]
     wb = Workbook()
     ws = wb.active
@@ -162,7 +198,8 @@ def export_tracking():
         return [
             l["created_date"], l["phone"], l["full_name"], l["sales_person"],
             l["status"], f"Attempt {l['attempts']}",
-            l["home_visit_date"], l["remarks"],
+            l["home_visit_date"], _format_sales_value(l["sales_value"]), l["model_name"],
+            l["remarks"],
             l["street_address"], l["email"], l["id"],
         ]
 
@@ -240,19 +277,39 @@ def api_update_lead(lead_id):
     remarks = body.get("remarks")
     home_visit_date = body.get("home_visit_date")
     sales_person = body.get("sales_person")
+    model_name = body.get("model_name")
     increment_attempts = bool(body.get("increment_attempts"))
+    decrement_attempts = bool(body.get("decrement_attempts"))
 
-    if status is not None and status not in db.STATUS_OPTIONS:
-        return jsonify({"error": "Invalid status value."}), 400
+    if status is not None:
+        parts = [p.strip() for p in status.split(",") if p.strip()]
+        if not parts or any(p not in db.STATUS_OPTIONS for p in parts):
+            return jsonify({"error": "Invalid status value."}), 400
+        status = db.normalize_status(status)
     if home_visit_date and not DATE_RE.match(home_visit_date):
         return jsonify({"error": "home_visit_date must be YYYY-MM-DD."}), 400
     if sales_person and sales_person not in db.SALES_PERSONS:
         return jsonify({"error": "Invalid sales person."}), 400
 
+    sales_value = db.UNSET
+    if "sales_value" in body:
+        raw = body.get("sales_value")
+        sv = ("" if raw is None else str(raw)).strip().replace(",", "")
+        if sv == "":
+            sales_value = None
+        else:
+            try:
+                sales_value = float(sv)
+            except ValueError:
+                return jsonify({"error": "Sales value must be a number."}), 400
+            if sales_value < 0:
+                return jsonify({"error": "Sales value must be a non-negative number."}), 400
+
     updated = db.update_lead(
         lead_id, status=status, remarks=remarks,
         home_visit_date=home_visit_date, sales_person=sales_person,
-        increment_attempts=increment_attempts,
+        increment_attempts=increment_attempts, decrement_attempts=decrement_attempts,
+        sales_value=sales_value, model_name=model_name,
     )
     if updated is None:
         return jsonify({"error": "Lead not found."}), 404
