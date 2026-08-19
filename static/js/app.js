@@ -15,6 +15,7 @@
     "Samya", "Sarat", "Snehasish", "Sreerup", "Suman",
   ];
   const HV_PAGE_SIZE = 15;
+  const TRACKING_PAGE_SIZE = 15;
   const NAV_MAPPING = "__mapping__";
   const MOVE_UNASSIGNED = "__unassigned__";
   const NAV_OVERVIEW = "__overview__";
@@ -39,6 +40,7 @@
     selectedSubTab: "dashboard",
     hvStatusFilter: "all",
     hvTablePage: 1,
+    trackingTablePage: 1,
     calendarMonth: { year: now.getFullYear(), month: now.getMonth() },
     ovStatusFilter: "all",
     dashDateFrom: "",
@@ -133,6 +135,7 @@
     state.selectedStatus = "all";
     state.hvStatusFilter = "all";
     state.hvTablePage = 1;
+    state.trackingTablePage = 1;
     state.dashDateFrom = "";
     state.dashDateTo = "";
     render();
@@ -217,16 +220,19 @@
     el("#monthFilter").addEventListener("change", (e) => {
       state.selectedMonth = e.target.value;
       state.hvTablePage = 1;
+      state.trackingTablePage = 1;
       el("#footerPeriod").textContent = monthLabel(state.selectedMonth);
       renderContent();
     });
     el("#campaignFilter").addEventListener("change", (e) => {
       state.selectedCampaign = e.target.value;
       state.hvTablePage = 1;
+      state.trackingTablePage = 1;
       renderContent();
     });
     el("#statusFilter").addEventListener("change", (e) => {
       state.selectedStatus = e.target.value;
+      state.trackingTablePage = 1;
       renderContent();
     });
     el("#clearFilters").addEventListener("click", (e) => {
@@ -235,6 +241,7 @@
       state.selectedCampaign = "all";
       state.selectedStatus = "all";
       state.hvTablePage = 1;
+      state.trackingTablePage = 1;
       render();
     });
   }
@@ -623,7 +630,7 @@
         create("h3", {}, [text("FB Leads")]),
         downloadBtn,
       ]),
-      create("div", { class: "table-scroll" }, [buildTrackingTable(leads)]),
+      buildTrackingTable(leads),
     ]);
     content.appendChild(panel);
   }
@@ -993,16 +1000,22 @@
   }
 
   function buildTrackingTable(leads) {
+    const totalPages = Math.max(1, Math.ceil(leads.length / TRACKING_PAGE_SIZE));
+    if (state.trackingTablePage > totalPages) state.trackingTablePage = totalPages;
+    if (state.trackingTablePage < 1) state.trackingTablePage = 1;
+    const start = (state.trackingTablePage - 1) * TRACKING_PAGE_SIZE;
+    const pageLeads = leads.slice(start, start + TRACKING_PAGE_SIZE);
+
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
       create("tr", {}, ["Date", "Phone", "Full Name", "Sales Person", "Status", "Attempts Made", "Home Visit Date", "Remarks", "Street Address", "Email", "Customer ID"].map((h) => create("th", {}, [text(h)]))),
     ]));
     const tbody = create("tbody");
-    if (!leads.length) {
+    if (!pageLeads.length) {
       tbody.appendChild(create("tr", {}, [create("td", { colspan: "11" }, [text("No leads match this filter.")])]));
     }
 
-    leads.forEach((l) => {
+    pageLeads.forEach((l) => {
       const statusCell = buildStatusMultiCell(l, null);
       const attemptsCell = buildAttemptsCell(l);
 
@@ -1046,7 +1059,25 @@
     });
 
     table.appendChild(tbody);
-    return table;
+
+    const prevBtn = create("button", { class: "btn btn-outline" }, [text("Previous")]);
+    prevBtn.disabled = state.trackingTablePage <= 1;
+    prevBtn.addEventListener("click", () => { state.trackingTablePage -= 1; renderContent(); });
+
+    const nextBtn = create("button", { class: "btn btn-outline" }, [text("Next")]);
+    nextBtn.disabled = state.trackingTablePage >= totalPages;
+    nextBtn.addEventListener("click", () => { state.trackingTablePage += 1; renderContent(); });
+
+    const pagination = create("div", { class: "pagination-row" }, [
+      prevBtn,
+      create("span", { class: "pagination-label" }, [text(`Page ${state.trackingTablePage} of ${totalPages}`)]),
+      nextBtn,
+    ]);
+
+    return create("div", {}, [
+      create("div", { class: "table-scroll" }, [table]),
+      pagination,
+    ]);
   }
 
   // ---------- Home Visit sub-tab ----------
