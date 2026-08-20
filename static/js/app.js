@@ -64,11 +64,24 @@
   };
   const text = (s) => document.createTextNode(s ?? "");
 
-  // A lead's `status` field can hold multiple comma-separated tags (e.g.
-  // "Warm,Bulk Order") set via checkboxes, rather than a single value.
+  // A lead's `status` field can (still) hold multiple comma-separated tags
+  // left over from when per-row editing was multi-select - going forward,
+  // the single-select dropdown always writes exactly one, but old leads
+  // may carry a combo like "New,Warm" until next touched.
   const statusList = (lead) => (lead.status || "").split(",").map((s) => s.trim()).filter(Boolean);
   const hasStatus = (lead, value) => statusList(lead).includes(value);
   const hasAnyStatus = (lead, values) => statusList(lead).some((s) => values.includes(s));
+
+  // Single status to show/edit for a lead - the most-advanced tag it carries
+  // (last match in STATUS_OPTIONS order), so a legacy "New,Warm" lead reads
+  // as "Warm" rather than always falling back to "New".
+  function primaryStatus(lead) {
+    const statuses = statusList(lead);
+    for (let i = STATUS_OPTIONS.length - 1; i >= 0; i--) {
+      if (statuses.includes(STATUS_OPTIONS[i])) return STATUS_OPTIONS[i];
+    }
+    return STATUS_OPTIONS[0];
+  }
 
   async function fetchJSON(url, opts) {
     const res = await fetch(url, opts);
@@ -824,7 +837,7 @@
   function buildStatusSelectCell(lead, onSaved) {
     const select = create("select", { class: "status-select" });
     STATUS_OPTIONS.forEach((opt) => select.appendChild(create("option", { value: opt }, [text(opt)])));
-    select.value = statusList(lead)[0] || STATUS_OPTIONS[0];
+    select.value = primaryStatus(lead);
     select.addEventListener("change", async () => {
       const newVal = select.value;
       if (newVal === lead.status) return;
@@ -839,7 +852,7 @@
         if (onSaved) onSaved();
       } catch (err) {
         alert("Could not save status: " + err.message);
-        select.value = statusList(lead)[0] || STATUS_OPTIONS[0];
+        select.value = primaryStatus(lead);
       }
     });
     return select;
@@ -1169,7 +1182,7 @@
   }
 
   function primaryHVStatus(lead) {
-    return HV_PIPELINE_STATUSES.find((s) => hasStatus(lead, s)) || statusList(lead)[0] || "New";
+    return HV_PIPELINE_STATUSES.find((s) => hasStatus(lead, s)) || primaryStatus(lead);
   }
 
   function buildVisitChip(lead, cellEl) {
