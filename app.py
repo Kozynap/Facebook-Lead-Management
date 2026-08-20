@@ -170,7 +170,7 @@ def export_tracking():
     area = body.get("area", "")
     month = body.get("month", "all")
     campaign = body.get("campaign", "")
-    status = body.get("status", "all")
+    statuses = body.get("status") or []
 
     leads = db.get_all_leads()
     filtered = [
@@ -178,7 +178,7 @@ def export_tracking():
         if (not area or l["area"] == area)
         and (month == "all" or l["created_month"] == month)
         and (not campaign or l["campaign_name"] == campaign)
-        and (status == "all" or _status_matches(l["status"], status))
+        and (not statuses or any(_status_matches(l["status"], s) for s in statuses))
     ]
 
     headers = [
@@ -221,7 +221,7 @@ def export_tracking():
         area or "all-areas",
         campaign or "all-campaigns",
         month if month != "all" else "all-months",
-        status if status != "all" else "all-statuses",
+        "+".join(statuses) if statuses else "all-statuses",
     ]
     filename = "client-tracking_" + "_".join(b.strip().replace(" ", "-") for b in name_bits) + ".xlsx"
 

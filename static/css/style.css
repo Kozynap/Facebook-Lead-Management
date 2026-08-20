@@ -524,38 +524,15 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
   width: 100%;
 }
 
-/* ---------- Status chip / multi-select ---------- */
+/* ---------- Status filter multi-select / status colors ---------- */
 
-.status-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px 3px 7px;
-  border-radius: 3px;
-  white-space: nowrap;
-  font-size: 11.5px;
-  font-weight: 600;
-}
-.status-chip .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.status-sep {
-  color: var(--subink);
-  font-size: 12px;
-}
-
-.status-multiselect { display: inline-block; }
+.status-multiselect { display: inline-block; position: relative; }
 .status-multiselect summary {
   cursor: pointer;
   list-style: none;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 3px;
-  white-space: normal;
 }
 .status-multiselect summary::-webkit-details-marker { display: none; }
 .status-multiselect summary::after {
@@ -563,23 +540,38 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
   margin-left: 3px;
   color: var(--subink);
   font-size: 10px;
+  flex-shrink: 0;
 }
 .status-multiselect .status-summary {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.filter-field .status-multiselect summary {
+  border-bottom: 1px solid var(--line);
+  padding: 4px 2px 8px;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  color: var(--ink);
+  min-width: 160px;
+  max-width: 200px;
+}
+.filter-field .status-multiselect[open] summary { border-bottom-color: var(--rust); }
 .status-checklist {
-  margin-top: 8px;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
   padding: 8px;
   border: 1px solid var(--line);
   background: var(--surface);
+  box-shadow: 0 4px 14px rgba(28, 26, 23, 0.12);
   display: flex;
   flex-direction: column;
   gap: 6px;
   white-space: normal;
   min-width: 190px;
+  z-index: 20;
 }
 .status-check-row {
   display: flex;
@@ -592,24 +584,28 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
 }
 .status-check-row input[type="checkbox"] { cursor: pointer; }
 
+.status-select {
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: var(--ink);
+  padding: 4px 2px;
+  min-width: 150px;
+}
+.status-select:focus { outline: none; border-bottom-color: var(--rust); }
+
 .status-New       { background: var(--neutral-bg); color: var(--neutral); }
-.status-New .dot { background: var(--neutral); }
 .status-Follow-up { background: var(--amber-bg); color: var(--amber); }
-.status-Follow-up .dot { background: var(--amber); }
 .status-Warm      { background: var(--rust-bg); color: var(--rust-deep); }
-.status-Warm .dot { background: var(--rust); }
 .status-Cold      { background: var(--brick-bg); color: var(--brick); }
-.status-Cold .dot { background: var(--brick); }
 .status-Bulk-Order      { background: var(--sage-bg); color: var(--sage); }
-.status-Bulk-Order .dot { background: var(--sage); }
 
 /* Home Visit pipeline stages, part of the same main status vocabulary. */
 .status-Home-Visit-Booked            { background: var(--amber-bg); color: var(--amber); }
-.status-Home-Visit-Booked .dot       { background: var(--amber); }
 .status-Home-Visit-Done              { background: var(--rust-bg); color: var(--rust-deep); }
-.status-Home-Visit-Done .dot         { background: var(--rust); }
 .status-Home-Visit-Done-and-Paid     { background: var(--sage-bg); color: var(--sage); }
-.status-Home-Visit-Done-and-Paid .dot { background: var(--sage); }
 
 .remarks-input {
   width: 200px;

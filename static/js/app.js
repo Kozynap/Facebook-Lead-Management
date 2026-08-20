@@ -36,7 +36,7 @@
     selectedNav: null,
     selectedMonth: "all",
     selectedCampaign: "all",
-    selectedStatus: "all",
+    selectedStatuses: [],
     selectedSubTab: "dashboard",
     hvStatusFilter: "all",
     hvTablePage: 1,
@@ -132,7 +132,7 @@
   function selectNav(name) {
     state.selectedNav = name;
     state.selectedCampaign = "all";
-    state.selectedStatus = "all";
+    state.selectedStatuses = [];
     state.hvStatusFilter = "all";
     state.hvTablePage = 1;
     state.trackingTablePage = 1;
@@ -209,11 +209,39 @@
     campaignSel.value = campaignNames.includes(currentCampaign) || currentCampaign === "all" ? currentCampaign : "all";
     state.selectedCampaign = campaignSel.value;
 
-    const statusSel = el("#statusFilter");
-    statusSel.innerHTML = "";
-    statusSel.appendChild(create("option", { value: "all" }, [text("All statuses")]));
-    STATUS_OPTIONS.forEach((s) => statusSel.appendChild(create("option", { value: s }, [text(s)])));
-    statusSel.value = state.selectedStatus;
+    const statusContainer = el("#statusFilterWidget");
+    statusContainer.innerHTML = "";
+    statusContainer.appendChild(buildStatusFilterMultiSelect());
+  }
+
+  // Master "Status" filter in the top filter bar - the only place status
+  // multi-select applies. Each checkbox toggles membership in
+  // state.selectedStatuses (empty = no filter / all statuses) and
+  // re-renders content immediately; the filter bar itself isn't touched by
+  // renderContent(), so the panel stays open across successive toggles.
+  function buildStatusFilterMultiSelect() {
+    const details = create("details", { class: "status-multiselect" });
+    const summaryLabel = () => state.selectedStatuses.length ? state.selectedStatuses.join(", ") : "All statuses";
+    const summaryBody = create("span", { class: "status-summary" }, [text(summaryLabel())]);
+    details.appendChild(create("summary", {}, [summaryBody]));
+
+    const list = create("div", { class: "status-checklist" });
+    STATUS_OPTIONS.forEach((opt) => {
+      const cb = create("input", { type: "checkbox", value: opt });
+      cb.checked = state.selectedStatuses.includes(opt);
+      cb.addEventListener("change", () => {
+        state.selectedStatuses = cb.checked
+          ? [...state.selectedStatuses, opt]
+          : state.selectedStatuses.filter((s) => s !== opt);
+        summaryBody.textContent = summaryLabel();
+        state.trackingTablePage = 1;
+        renderContent();
+      });
+      list.appendChild(create("label", { class: "status-check-row" }, [cb, text(" " + opt)]));
+    });
+    details.appendChild(list);
+
+    return details;
   }
 
   function setupFilterBar() {
@@ -230,16 +258,11 @@
       state.trackingTablePage = 1;
       renderContent();
     });
-    el("#statusFilter").addEventListener("change", (e) => {
-      state.selectedStatus = e.target.value;
-      state.trackingTablePage = 1;
-      renderContent();
-    });
     el("#clearFilters").addEventListener("click", (e) => {
       e.preventDefault();
       state.selectedMonth = "all";
       state.selectedCampaign = "all";
-      state.selectedStatus = "all";
+      state.selectedStatuses = [];
       state.hvTablePage = 1;
       state.trackingTablePage = 1;
       render();
@@ -270,7 +293,7 @@
       if (l.area !== state.selectedNav) return false;
       if (state.selectedMonth !== "all" && l.created_month !== state.selectedMonth) return false;
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
-      if (state.selectedStatus !== "all" && !hasStatus(l, state.selectedStatus)) return false;
+      if (state.selectedStatuses.length && !hasAnyStatus(l, state.selectedStatuses)) return false;
       return true;
     });
   }
@@ -339,7 +362,7 @@
   function leadsForDashboard() {
     return leadsForArea().filter((l) => {
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
-      if (state.selectedStatus !== "all" && !hasStatus(l, state.selectedStatus)) return false;
+      if (state.selectedStatuses.length && !hasAnyStatus(l, state.selectedStatuses)) return false;
       if (state.dashDateFrom && l.created_date < state.dashDateFrom) return false;
       if (state.dashDateTo && l.created_date > state.dashDateTo) return false;
       return true;
@@ -679,8 +702,7 @@
     });
   }
 
-  // Clicking away from an open status checklist closes it (and fires its
-  // pending onSaved, via the 'toggle' listener set up in buildStatusMultiCell).
+  // Clicking away from the open Status filter checklist closes it.
   function setupStatusMultiSelectAutoClose() {
     document.addEventListener("click", (e) => {
       document.querySelectorAll("details.status-multiselect[open]").forEach((d) => {
@@ -721,7 +743,7 @@
             area: state.selectedNav || "",
             month: state.selectedMonth,
             campaign: state.selectedCampaign === "all" ? "" : state.selectedCampaign,
-            status: state.selectedStatus,
+            status: state.selectedStatuses,
           }),
         });
         if (!res.ok) {
@@ -797,53 +819,14 @@
   // Shared between FB Leads, the Home Visit table, and the calendar's
   // reschedule editor - a change made anywhere updates the same lead object
   // in state.leads, so every other view picks it up on its next render.
-
-  function renderStatusChips(lead) {
-    const frag = document.createDocumentFragment();
-    const statuses = statusList(lead);
-    if (!statuses.length) {
-      frag.appendChild(text("—"));
-      return frag;
-    }
-    statuses.forEach((s, i) => {
-      const dot = create("span", { class: "dot" });
-      frag.appendChild(create("span", { class: "status-chip status-" + slug(s) }, [dot, text(s)]));
-      if (i < statuses.length - 1) frag.appendChild(create("span", { class: "status-sep" }, [text(", ")]));
-    });
-    return frag;
-  }
-
-  // Multi-select status editor: a native <details> disclosure holding a
-  // checkbox per STATUS_OPTIONS value. Each checkbox saves immediately on
-  // change (so nothing is lost if the user navigates away mid-edit), but
-  // the heavier onSaved callback (which can re-render the whole table,
-  // e.g. when a status change moves a lead in/out of the Home Visit tab)
-  // only fires once the panel closes - otherwise checking a second box
-  // would find the panel already torn down mid-edit.
-  function buildStatusMultiCell(lead, onSaved) {
-    const details = create("details", { class: "status-multiselect" });
-    const summaryBody = create("span", { class: "status-summary" }, [renderStatusChips(lead)]);
-    details.appendChild(create("summary", {}, [summaryBody]));
-
-    const list = create("div", { class: "status-checklist" });
-    const checkboxes = STATUS_OPTIONS.map((opt) => {
-      const cb = create("input", { type: "checkbox", value: opt });
-      cb.checked = hasStatus(lead, opt);
-      list.appendChild(create("label", { class: "status-check-row" }, [cb, text(" " + opt)]));
-      return cb;
-    });
-    details.appendChild(list);
-
-    let dirty = false;
-
-    async function saveNow() {
-      const selected = checkboxes.filter((cb) => cb.checked).map((cb) => cb.value);
-      if (!selected.length) {
-        alert("Select at least one status.");
-        checkboxes.forEach((cb) => { cb.checked = hasStatus(lead, cb.value); });
-        return;
-      }
-      const newVal = selected.join(",");
+  // One status per lead, picked from a plain <select> (the multi-select
+  // checklist UI lives only in the top Status filter, not here).
+  function buildStatusSelectCell(lead, onSaved) {
+    const select = create("select", { class: "status-select" });
+    STATUS_OPTIONS.forEach((opt) => select.appendChild(create("option", { value: opt }, [text(opt)])));
+    select.value = statusList(lead)[0] || STATUS_OPTIONS[0];
+    select.addEventListener("change", async () => {
+      const newVal = select.value;
       if (newVal === lead.status) return;
       try {
         const updated = await fetchJSON(`/api/leads/${encodeURIComponent(lead.id)}`, {
@@ -852,24 +835,14 @@
           body: JSON.stringify({ status: newVal }),
         });
         lead.status = updated.status;
-        summaryBody.innerHTML = "";
-        summaryBody.appendChild(renderStatusChips(lead));
         showToast("Status saved");
+        if (onSaved) onSaved();
       } catch (err) {
         alert("Could not save status: " + err.message);
-        checkboxes.forEach((cb) => { cb.checked = hasStatus(lead, cb.value); });
-      }
-    }
-
-    checkboxes.forEach((cb) => cb.addEventListener("change", () => { dirty = true; saveNow(); }));
-    details.addEventListener("toggle", () => {
-      if (!details.open && dirty) {
-        dirty = false;
-        if (onSaved) onSaved();
+        select.value = statusList(lead)[0] || STATUS_OPTIONS[0];
       }
     });
-
-    return details;
+    return select;
   }
 
   function buildHomeVisitDateCell(lead, onSaved) {
@@ -1016,7 +989,7 @@
     }
 
     pageLeads.forEach((l) => {
-      const statusCell = buildStatusMultiCell(l, null);
+      const statusCell = buildStatusSelectCell(l, null);
       const attemptsCell = buildAttemptsCell(l);
 
       const remarksInput = create("input", { type: "text", class: "remarks-input", value: l.remarks || "", placeholder: "Add a remark…" });
@@ -1147,7 +1120,7 @@
     }
     pageLeads.forEach((l) => {
       const dateInput = buildHomeVisitDateCell(l, () => renderContent());
-      const statusCell = buildStatusMultiCell(l, () => renderContent());
+      const statusCell = buildStatusSelectCell(l, () => renderContent());
       const salesPersonSelect = buildSalesPersonCell(l, () => renderContent());
       const salesValueInput = buildSalesValueCell(l, null);
       const modelNameInput = buildModelNameCell(l, null);
