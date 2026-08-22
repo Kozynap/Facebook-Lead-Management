@@ -160,27 +160,10 @@ def api_campaign_map_set():
     return jsonify({"campaign": campaign, "area": area})
 
 
-@app.route("/api/export/tracking", methods=["POST"])
-def export_tracking():
-    body = request.get_json(force=True, silent=True) or {}
-
-    if body.get("code", "").strip() != _download_code():
-        return jsonify({"error": "Incorrect download code."}), 403
-
-    area = body.get("area", "")
-    month = body.get("month", "all")
-    campaign = body.get("campaign", "")
-    statuses = body.get("status") or []
-
-    leads = db.get_all_leads()
-    filtered = [
-        l for l in leads
-        if (not area or l["area"] == area)
-        and (month == "all" or l["created_month"] == month)
-        and (not campaign or l["campaign_name"] == campaign)
-        and (not statuses or any(_status_matches(l["status"], s) for s in statuses))
-    ]
-
+def _build_client_tracking_workbook(filtered):
+    """Shared xlsx builder for both export routes below - one filters
+    leads by area/month/campaign/status, the other by an explicit id
+    list, but the resulting sheet looks the same either way."""
     headers = [
         "Date", "Phone", "Full Name", "Called by", "Status", "Attempts Made",
         "Home Visit Date", "Sales Value (Rs)", "Model Name", "Remarks",
@@ -216,6 +199,31 @@ def export_tracking():
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
+    return buf
+
+
+@app.route("/api/export/tracking", methods=["POST"])
+def export_tracking():
+    body = request.get_json(force=True, silent=True) or {}
+
+    if body.get("code", "").strip() != _download_code():
+        return jsonify({"error": "Incorrect download code."}), 403
+
+    area = body.get("area", "")
+    month = body.get("month", "all")
+    campaign = body.get("campaign", "")
+    statuses = body.get("status") or []
+
+    leads = db.get_all_leads()
+    filtered = [
+        l for l in leads
+        if (not area or l["area"] == area)
+        and (month == "all" or l["created_month"] == month)
+        and (not campaign or l["campaign_name"] == campaign)
+        and (not statuses or any(_status_matches(l["status"], s) for s in statuses))
+    ]
+
+    buf = _build_client_tracking_workbook(filtered)
 
     name_bits = [
         area or "all-areas",
@@ -224,6 +232,33 @@ def export_tracking():
         "+".join(statuses) if statuses else "all-statuses",
     ]
     filename = "client-tracking_" + "_".join(b.strip().replace(" ", "-") for b in name_bits) + ".xlsx"
+
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.route("/api/export/leads", methods=["POST"])
+def export_leads():
+    """Export an explicit set of leads by id - used by the Per-Ad
+    Summary drill-down modal, where the client already knows exactly
+    which leads a clicked count represents."""
+    body = request.get_json(force=True, silent=True) or {}
+
+    if body.get("code", "").strip() != _download_code():
+        return jsonify({"error": "Incorrect download code."}), 403
+
+    ids = set(body.get("ids") or [])
+    leads = db.get_all_leads()
+    filtered = [l for l in leads if l["id"] in ids]
+
+    buf = _build_client_tracking_workbook(filtered)
+
+    label = re.sub(r"[^A-Za-z0-9]+", "-", body.get("label", "")).strip("-") or "leads"
+    filename = f"client-tracking_{label}.xlsx"
 
     return send_file(
         buf,

@@ -748,7 +748,12 @@
     return table;
   }
 
+  // Remembers what's currently shown in the drill-down modal, so its
+  // Download Excel button can export exactly those leads.
+  let leadsDetailContext = { title: "", ids: [] };
+
   function openLeadsDetailModal(title, leads) {
+    leadsDetailContext = { title, ids: leads.map((l) => l.id) };
     el("#leadsDetailTitle").textContent = title;
     const wrap = el("#leadsDetailTableWrap");
     wrap.innerHTML = "";
@@ -760,9 +765,27 @@
     el("#leadsDetailModal").classList.add("hidden");
   }
 
+  function downloadLeadsDetail() {
+    openCodeModal({
+      title: "Enter Download Code",
+      hint: "Downloading exports every client's full contact details to Excel. This uses a separate code from the one that unlocked viewing - enter the download code to continue.",
+      onSubmit: async (code) => {
+        const res = await fetch("/api/export/leads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code, ids: leadsDetailContext.ids, label: leadsDetailContext.title }),
+        });
+        await downloadFileFromResponse(res, "client-tracking.xlsx");
+        closeCodeModal();
+        showToast("Download started");
+      },
+    });
+  }
+
   function setupLeadsDetailModal() {
     const modal = el("#leadsDetailModal");
     el("#closeLeadsDetailModal").addEventListener("click", closeLeadsDetailModal);
+    el("#downloadLeadsDetail").addEventListener("click", downloadLeadsDetail);
     modal.addEventListener("click", (e) => { if (e.target === modal) closeLeadsDetailModal(); });
   }
 
@@ -794,6 +817,26 @@
     });
   }
 
+  // Shared by every "download code" flow - turns an xlsx response into a
+  // saved file, using the server's suggested filename when present.
+  async function downloadFileFromResponse(res, fallbackFilename) {
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Request failed (${res.status})`);
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename=([^;]+)/);
+    const filename = match ? match[1].trim() : fallbackFilename;
+
+    const url = URL.createObjectURL(blob);
+    const a = create("a", { href: url, download: filename });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   function openDownloadModal() {
     openCodeModal({
       title: "Enter Download Code",
@@ -810,22 +853,7 @@
             status: state.selectedStatuses,
           }),
         });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || `Request failed (${res.status})`);
-        }
-        const blob = await res.blob();
-        const disposition = res.headers.get("Content-Disposition") || "";
-        const match = disposition.match(/filename=([^;]+)/);
-        const filename = match ? match[1].trim() : "fb-leads.xlsx";
-
-        const url = URL.createObjectURL(blob);
-        const a = create("a", { href: url, download: filename });
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-
+        await downloadFileFromResponse(res, "fb-leads.xlsx");
         closeCodeModal();
         showToast("Download started");
       },
