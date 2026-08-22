@@ -45,7 +45,7 @@ AREAS = ["North Bengal", "South Bengal", "North East"]
 SALES_PERSONS = [
     "Abhishek", "Aditya", "Chinmoy", "Dipankar", "Gourav", "Joydip",
     "Krishna", "Kuldeep", "Madhumita", "Oikantik", "Rajesh", "Sambhu",
-    "Samya", "Sarat", "Snehasish", "Sreerup", "Suman",
+    "Samya", "Sarat", "Snehasish", "Sreerup", "Srijita", "Suman",
 ]
 
 LEAD_FIELDS = [

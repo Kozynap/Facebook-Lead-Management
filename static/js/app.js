@@ -12,7 +12,7 @@
   const SALES_PERSONS = window.SALES_PERSONS || [
     "Abhishek", "Aditya", "Chinmoy", "Dipankar", "Gourav", "Joydip",
     "Krishna", "Kuldeep", "Madhumita", "Oikantik", "Rajesh", "Sambhu",
-    "Samya", "Sarat", "Snehasish", "Sreerup", "Suman",
+    "Samya", "Sarat", "Snehasish", "Sreerup", "Srijita", "Suman",
   ];
   const HV_PAGE_SIZE = 15;
   const TRACKING_PAGE_SIZE = 15;
