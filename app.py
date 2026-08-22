@@ -182,7 +182,7 @@ def export_tracking():
     ]
 
     headers = [
-        "Date", "Phone", "Full Name", "Sales Person", "Status", "Attempts Made",
+        "Date", "Phone", "Full Name", "Called by", "Status", "Attempts Made",
         "Home Visit Date", "Sales Value (Rs)", "Model Name", "Remarks",
         "Street Address", "Email", "Customer ID",
     ]
@@ -289,7 +289,7 @@ def api_update_lead(lead_id):
     if home_visit_date and not DATE_RE.match(home_visit_date):
         return jsonify({"error": "home_visit_date must be YYYY-MM-DD."}), 400
     if sales_person and sales_person not in db.SALES_PERSONS:
-        return jsonify({"error": "Invalid sales person."}), 400
+        return jsonify({"error": "Invalid value for Called by."}), 400
 
     sales_value = db.UNSET
     if "sales_value" in body:

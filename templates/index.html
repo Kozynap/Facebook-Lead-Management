@@ -131,6 +131,17 @@
   </div>
 </div>
 
+<div id="leadsDetailModal" class="modal-backdrop hidden">
+  <div class="modal modal-wide">
+    <div class="eyebrow">Per-Ad Summary</div>
+    <h2 id="leadsDetailTitle">Leads</h2>
+    <div class="table-scroll" id="leadsDetailTableWrap"></div>
+    <div class="modal-actions">
+      <button id="closeLeadsDetailModal" class="btn btn-outline">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="saveToast" class="save-toast hidden"></div>
 
 <script src="{{ url_for('static', filename='js/app.js') }}?v={{ js_version }}"></script>

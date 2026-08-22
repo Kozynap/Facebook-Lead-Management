@@ -404,6 +404,22 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
   border-bottom-color: var(--rust);
 }
 
+.count-link {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--rust);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid transparent;
+  padding: 0;
+  cursor: pointer;
+  font-size: inherit;
+}
+.count-link:hover, .count-link:focus {
+  border-bottom-color: var(--rust);
+  outline: none;
+}
+
 .phone-cell-inner {
   display: inline-flex;
   align-items: center;
@@ -861,6 +877,13 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
   padding: 26px;
   width: min(480px, 92vw);
 }
+.modal-wide {
+  width: min(900px, 92vw);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+.modal-wide .table-scroll { overflow-y: auto; }
 .modal h2 {
   font-family: var(--font-serif);
   font-weight: 500;

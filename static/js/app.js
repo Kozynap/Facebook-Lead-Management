@@ -415,20 +415,23 @@
     };
   }
 
+  // A clickable count that opens the leads behind it in the details modal.
+  function buildDrillDownCount(count, title, matchedLeads) {
+    const btn = create("button", { type: "button", class: "count-link" }, [text(String(count))]);
+    btn.addEventListener("click", () => openLeadsDetailModal(title, matchedLeads));
+    return btn;
+  }
+
   function buildDashboardAdTable(leads) {
     const byAd = new Map();
     leads.forEach((l) => {
       const camp = l.campaign_name || "(no campaign)";
       const ad = l.ad_name || "(no ad)";
       const key = camp + "||" + ad;
-      if (!byAd.has(key)) byAd.set(key, { campaign: camp, ad, leads: 0, hvBooked: 0, hvDone: 0, hvDoneAndPurchased: 0 });
-      const row = byAd.get(key);
-      row.leads += 1;
-      if (hasStatus(l, "Home Visit Booked")) row.hvBooked += 1;
-      if (hasStatus(l, "Home Visit Done")) row.hvDone += 1;
-      if (hasStatus(l, "Home Visit Done and Paid")) row.hvDoneAndPurchased += 1;
+      if (!byAd.has(key)) byAd.set(key, { campaign: camp, ad, leads: [] });
+      byAd.get(key).leads.push(l);
     });
-    const rows = [...byAd.values()].sort((a, b) => b.leads - a.leads);
+    const rows = [...byAd.values()].sort((a, b) => b.leads.length - a.leads.length);
 
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
@@ -439,13 +442,18 @@
       tbody.appendChild(create("tr", {}, [create("td", { colspan: "6" }, [text("No leads in this range.")])]));
     }
     rows.forEach((r) => {
+      const hvBookedLeads = r.leads.filter((l) => hasStatus(l, "Home Visit Booked"));
+      const hvDoneLeads = r.leads.filter((l) => hasStatus(l, "Home Visit Done"));
+      const hvDoneAndPurchasedLeads = r.leads.filter((l) => hasStatus(l, "Home Visit Done and Paid"));
+      const label = `${r.ad} — ${r.campaign}`;
+
       tbody.appendChild(create("tr", {}, [
         create("td", { class: "wrap" }, [text(r.campaign)]),
         create("td", { class: "wrap" }, [text(r.ad)]),
-        create("td", { class: "num" }, [text(String(r.leads))]),
-        create("td", { class: "num" }, [text(String(r.hvBooked))]),
-        create("td", { class: "num" }, [text(String(r.hvDone))]),
-        create("td", { class: "num" }, [text(String(r.hvDoneAndPurchased))]),
+        create("td", { class: "num" }, [buildDrillDownCount(r.leads.length, `Leads Generated · ${label}`, r.leads)]),
+        create("td", { class: "num" }, [buildDrillDownCount(hvBookedLeads.length, `HV Booked · ${label}`, hvBookedLeads)]),
+        create("td", { class: "num" }, [buildDrillDownCount(hvDoneLeads.length, `HV Done · ${label}`, hvDoneLeads)]),
+        create("td", { class: "num" }, [buildDrillDownCount(hvDoneAndPurchasedLeads.length, `HV Done & Purchased · ${label}`, hvDoneAndPurchasedLeads)]),
       ]));
     });
     table.appendChild(tbody);
@@ -715,6 +723,49 @@
     });
   }
 
+  // Read-only drill-down shown when a Per-Ad Summary count is clicked -
+  // the leads that make up that number.
+  function buildLeadsDetailTable(leads) {
+    const table = create("table", { class: "data-table" });
+    table.appendChild(create("thead", {}, [
+      create("tr", {}, ["Date", "Full Name", "Phone", "Called by", "Status", "Home Visit Date"].map((h) => create("th", {}, [text(h)]))),
+    ]));
+    const tbody = create("tbody");
+    if (!leads.length) {
+      tbody.appendChild(create("tr", {}, [create("td", { colspan: "6" }, [text("No leads.")])]));
+    }
+    leads.forEach((l) => {
+      tbody.appendChild(create("tr", {}, [
+        create("td", { class: "num" }, [text(l.created_date)]),
+        create("td", { class: "wrap" }, [text(l.full_name)]),
+        create("td", {}, [buildPhoneLink(l.phone)]),
+        create("td", {}, [text(l.sales_person || "No One")]),
+        create("td", { class: "wrap" }, [text(l.status)]),
+        create("td", {}, [text(l.home_visit_date || "—")]),
+      ]));
+    });
+    table.appendChild(tbody);
+    return table;
+  }
+
+  function openLeadsDetailModal(title, leads) {
+    el("#leadsDetailTitle").textContent = title;
+    const wrap = el("#leadsDetailTableWrap");
+    wrap.innerHTML = "";
+    wrap.appendChild(buildLeadsDetailTable(leads));
+    el("#leadsDetailModal").classList.remove("hidden");
+  }
+
+  function closeLeadsDetailModal() {
+    el("#leadsDetailModal").classList.add("hidden");
+  }
+
+  function setupLeadsDetailModal() {
+    const modal = el("#leadsDetailModal");
+    el("#closeLeadsDetailModal").addEventListener("click", closeLeadsDetailModal);
+    modal.addEventListener("click", (e) => { if (e.target === modal) closeLeadsDetailModal(); });
+  }
+
   // Clicking away from the open Status filter checklist closes it.
   function setupStatusMultiSelectAutoClose() {
     document.addEventListener("click", (e) => {
@@ -881,7 +932,7 @@
 
   function buildSalesPersonCell(lead, onSaved) {
     const select = create("select", { class: "sales-person-select" });
-    select.appendChild(create("option", { value: "" }, [text("Unassigned")]));
+    select.appendChild(create("option", { value: "" }, [text("No One")]));
     SALES_PERSONS.forEach((name) => select.appendChild(create("option", { value: name }, [text(name)])));
     select.value = lead.sales_person || "";
     select.addEventListener("change", async () => {
@@ -893,10 +944,10 @@
           body: JSON.stringify({ sales_person: newVal }),
         });
         lead.sales_person = updated.sales_person;
-        showToast("Sales person saved");
+        showToast("Called by saved");
         if (onSaved) onSaved();
       } catch (err) {
-        alert("Could not save sales person: " + err.message);
+        alert("Could not save Called by: " + err.message);
         select.value = lead.sales_person || "";
       }
     });
@@ -994,7 +1045,7 @@
 
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
-      create("tr", {}, ["Date", "Phone", "Full Name", "Sales Person", "Status", "Attempts Made", "Home Visit Date", "Remarks", "Street Address", "Email", "Customer ID"].map((h) => create("th", {}, [text(h)]))),
+      create("tr", {}, ["Date", "Phone", "Full Name", "Called by", "Status", "Attempts Made", "Home Visit Date", "Remarks", "Street Address", "Email", "Customer ID"].map((h) => create("th", {}, [text(h)]))),
     ]));
     const tbody = create("tbody");
     if (!pageLeads.length) {
@@ -1125,7 +1176,7 @@
 
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
-      create("tr", {}, ["Home Visit Date", "Phone", "Client Name", "Sales Person", "Status", "Sales Value (Rs)", "Model Name", "Street Address", "Email", "Customer ID"].map((h) => create("th", {}, [text(h)]))),
+      create("tr", {}, ["Home Visit Date", "Phone", "Client Name", "Called by", "Status", "Sales Value (Rs)", "Model Name", "Street Address", "Email", "Customer ID"].map((h) => create("th", {}, [text(h)]))),
     ]));
     const tbody = create("tbody");
     if (!pageLeads.length) {
@@ -1188,7 +1239,7 @@
   function buildVisitChip(lead, cellEl) {
     const chip = create("button", { class: "visit-chip status-" + slug(primaryHVStatus(lead)) }, [
       create("div", { class: "visit-chip-name" }, [text(`Client: ${lead.full_name || lead.id}`)]),
-      create("div", { class: "visit-chip-sales" }, [text(`Sales: ${lead.sales_person || "Unassigned"}`)]),
+      create("div", { class: "visit-chip-sales" }, [text(`Called by: ${lead.sales_person || "No One"}`)]),
       create("div", { class: "visit-chip-meta" }, [text(lead.street_address || "—")]),
       create("div", { class: "visit-chip-meta" }, [text(`${lead.campaign_name || "—"} / ${lead.ad_name || "—"}`)]),
       create("div", { class: "visit-chip-meta" }, [text(lead.area || "—")]),
@@ -1535,6 +1586,7 @@
   document.addEventListener("DOMContentLoaded", () => {
     setupUploadModal();
     setupCodeModal();
+    setupLeadsDetailModal();
     setupStatusMultiSelectAutoClose();
     setupFilterBar();
     setupSubTabs();
