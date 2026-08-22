@@ -37,10 +37,15 @@
     selectedMonth: "all",
     selectedCampaign: "all",
     selectedStatuses: [],
+    searchQuery: "",
     selectedSubTab: "dashboard",
     hvStatusFilter: "all",
     hvTablePage: 1,
     trackingTablePage: 1,
+    trackingSort: { key: null, dir: "asc" },
+    hvSort: { key: null, dir: "asc" },
+    trackingSelectedIds: new Set(),
+    hvSelectedIds: new Set(),
     calendarMonth: { year: now.getFullYear(), month: now.getMonth() },
     ovStatusFilter: "all",
     dashDateFrom: "",
@@ -71,6 +76,17 @@
   const statusList = (lead) => (lead.status || "").split(",").map((s) => s.trim()).filter(Boolean);
   const hasStatus = (lead, value) => statusList(lead).includes(value);
   const hasAnyStatus = (lead, values) => statusList(lead).some((s) => values.includes(s));
+
+  // Matches the Search filter against a lead's name (substring) or phone
+  // (digits-only substring, so formatting/spaces/+ don't matter).
+  function leadMatchesSearch(lead, query) {
+    const q = (query || "").trim().toLowerCase();
+    if (!q) return true;
+    if ((lead.full_name || "").toLowerCase().includes(q)) return true;
+    const qDigits = q.replace(/\D/g, "");
+    if (qDigits && cleanPhone(lead.phone).replace(/\D/g, "").includes(qDigits)) return true;
+    return false;
+  }
 
   // Single status to show/edit for a lead - the most-advanced tag it carries
   // (last match in STATUS_OPTIONS order), so a legacy "New,Warm" lead reads
@@ -146,6 +162,7 @@
     state.selectedNav = name;
     state.selectedCampaign = "all";
     state.selectedStatuses = [];
+    state.searchQuery = "";
     state.hvStatusFilter = "all";
     state.hvTablePage = 1;
     state.trackingTablePage = 1;
@@ -225,6 +242,8 @@
     const statusContainer = el("#statusFilterWidget");
     statusContainer.innerHTML = "";
     statusContainer.appendChild(buildStatusFilterMultiSelect());
+
+    el("#searchFilter").value = state.searchQuery;
   }
 
   // Master "Status" filter in the top filter bar - the only place status
@@ -271,11 +290,18 @@
       state.trackingTablePage = 1;
       renderContent();
     });
+    el("#searchFilter").addEventListener("input", (e) => {
+      state.searchQuery = e.target.value;
+      state.hvTablePage = 1;
+      state.trackingTablePage = 1;
+      renderContent();
+    });
     el("#clearFilters").addEventListener("click", (e) => {
       e.preventDefault();
       state.selectedMonth = "all";
       state.selectedCampaign = "all";
       state.selectedStatuses = [];
+      state.searchQuery = "";
       state.hvTablePage = 1;
       state.trackingTablePage = 1;
       render();
@@ -307,6 +333,7 @@
       if (state.selectedMonth !== "all" && l.created_month !== state.selectedMonth) return false;
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
       if (state.selectedStatuses.length && !hasAnyStatus(l, state.selectedStatuses)) return false;
+      if (!leadMatchesSearch(l, state.searchQuery)) return false;
       return true;
     });
   }
@@ -324,6 +351,7 @@
       if (!hasAnyStatus(l, HV_PIPELINE_STATUSES)) return false;
       if (state.selectedMonth !== "all" && l.created_month !== state.selectedMonth) return false;
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
+      if (!leadMatchesSearch(l, state.searchQuery)) return false;
       return true;
     });
   }
@@ -376,6 +404,7 @@
     return leadsForArea().filter((l) => {
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
       if (state.selectedStatuses.length && !hasAnyStatus(l, state.selectedStatuses)) return false;
+      if (!leadMatchesSearch(l, state.searchQuery)) return false;
       if (state.dashDateFrom && l.created_date < state.dashDateFrom) return false;
       if (state.dashDateTo && l.created_date > state.dashDateTo) return false;
       return true;
@@ -1064,23 +1093,151 @@
     return input;
   }
 
-  function buildTrackingTable(leads) {
+  // ---------- Sortable table headers (shared by FB Leads + Home Visit) ----------
+
+  function buildSortableTh(label, key, sortState, onSort) {
+    const arrow = sortState.key !== key ? "" : sortState.dir === "asc" ? " ▲" : " ▼";
+    const th = create("th", { class: "sortable-th" }, [text(label + arrow)]);
+    th.addEventListener("click", () => onSort(key));
+    return th;
+  }
+
+  function sortLeadsBy(leads, columns, sortState) {
+    if (!sortState.key) return leads;
+    const col = columns.find((c) => c.key === sortState.key);
+    if (!col) return leads;
+    const sorted = leads.slice().sort((a, b) => {
+      const va = col.value(a);
+      const vb = col.value(b);
+      const cmp = typeof va === "number" && typeof vb === "number"
+        ? va - vb
+        : String(va ?? "").localeCompare(String(vb ?? ""));
+      return sortState.dir === "desc" ? -cmp : cmp;
+    });
+    return sorted;
+  }
+
+  // ---------- Bulk selection + status update (shared by FB Leads + Home Visit) ----------
+
+  // Drops any selected id that isn't in the current page, so a selection
+  // never silently applies to leads the user can no longer see (after a
+  // page/filter/sort/search change).
+  function pruneSelection(selectedIds, pageLeads) {
+    const visible = new Set(pageLeads.map((l) => l.id));
+    for (const id of selectedIds) {
+      if (!visible.has(id)) selectedIds.delete(id);
+    }
+  }
+
+  function buildSelectAllTh(pageLeads, selectedIds, onToggleAll) {
+    const cb = create("input", { type: "checkbox" });
+    const allSelected = pageLeads.length > 0 && pageLeads.every((l) => selectedIds.has(l.id));
+    const someSelected = pageLeads.some((l) => selectedIds.has(l.id));
+    cb.checked = allSelected;
+    cb.indeterminate = someSelected && !allSelected;
+    cb.addEventListener("change", () => onToggleAll(cb.checked));
+    return create("th", { class: "select-col" }, [cb]);
+  }
+
+  function buildRowSelectTd(lead, selectedIds, onToggle) {
+    const cb = create("input", { type: "checkbox" });
+    cb.checked = selectedIds.has(lead.id);
+    cb.addEventListener("change", () => onToggle(lead.id, cb.checked));
+    return create("td", { class: "select-col" }, [cb]);
+  }
+
+  async function applyBulkStatus(selectedIds, status) {
+    const ids = [...selectedIds];
+    try {
+      await Promise.all(ids.map((id) =>
+        fetchJSON(`/api/leads/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        }).then((updated) => {
+          const lead = state.leads.find((l) => l.id === id);
+          if (lead) lead.status = updated.status;
+        })
+      ));
+      showToast(`Status updated for ${ids.length} lead${ids.length === 1 ? "" : "s"}`);
+    } catch (err) {
+      alert("Could not update all selected leads: " + err.message);
+    }
+    selectedIds.clear();
+    renderContent();
+  }
+
+  function buildBulkStatusBar(selectedIds) {
+    if (!selectedIds.size) return null;
+    const select = create("select", {});
+    STATUS_OPTIONS.forEach((opt) => select.appendChild(create("option", { value: opt }, [text(opt)])));
+    const applyBtn = create("button", { class: "btn btn-primary" }, [text("Apply")]);
+    applyBtn.addEventListener("click", () => applyBulkStatus(selectedIds, select.value));
+    const clearBtn = create("button", { class: "btn btn-outline" }, [text("Clear selection")]);
+    clearBtn.addEventListener("click", () => { selectedIds.clear(); renderContent(); });
+    return create("div", { class: "bulk-action-bar" }, [
+      create("span", { class: "bulk-action-count" }, [text(`${selectedIds.size} selected`)]),
+      create("span", {}, [text("Set status to")]),
+      select,
+      applyBtn,
+      clearBtn,
+    ]);
+  }
+
+  const TRACKING_COLUMNS = [
+    { key: "created_date", label: "Date", value: (l) => l.created_date },
+    { key: "phone", label: "Phone", value: (l) => cleanPhone(l.phone) },
+    { key: "full_name", label: "Full Name", value: (l) => (l.full_name || "").toLowerCase() },
+    { key: "sales_person", label: "Called by", value: (l) => (l.sales_person || "").toLowerCase() },
+    { key: "status", label: "Status", value: (l) => STATUS_OPTIONS.indexOf(primaryStatus(l)) },
+    { key: "attempts", label: "Attempts Made", value: (l) => l.attempts },
+    { key: "home_visit_date", label: "Home Visit Date", value: (l) => l.home_visit_date || "" },
+    { key: "remarks", label: "Remarks", value: (l) => (l.remarks || "").toLowerCase() },
+    { key: "street_address", label: "Street Address", value: (l) => (l.street_address || "").toLowerCase() },
+    { key: "email", label: "Email", value: (l) => (l.email || "").toLowerCase() },
+    { key: "id", label: "Customer ID", value: (l) => l.id },
+  ];
+
+  function sortTracking(key) {
+    if (state.trackingSort.key === key) {
+      state.trackingSort = { key, dir: state.trackingSort.dir === "asc" ? "desc" : "asc" };
+    } else {
+      state.trackingSort = { key, dir: "asc" };
+    }
+    state.trackingTablePage = 1;
+    renderContent();
+  }
+
+  function buildTrackingTable(rawLeads) {
+    const leads = sortLeadsBy(rawLeads, TRACKING_COLUMNS, state.trackingSort);
     const totalPages = Math.max(1, Math.ceil(leads.length / TRACKING_PAGE_SIZE));
     if (state.trackingTablePage > totalPages) state.trackingTablePage = totalPages;
     if (state.trackingTablePage < 1) state.trackingTablePage = 1;
     const start = (state.trackingTablePage - 1) * TRACKING_PAGE_SIZE;
     const pageLeads = leads.slice(start, start + TRACKING_PAGE_SIZE);
+    const selectedIds = state.trackingSelectedIds;
+    pruneSelection(selectedIds, pageLeads);
 
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
-      create("tr", {}, ["Date", "Phone", "Full Name", "Called by", "Status", "Attempts Made", "Home Visit Date", "Remarks", "Street Address", "Email", "Customer ID"].map((h) => create("th", {}, [text(h)]))),
+      create("tr", {}, [
+        buildSelectAllTh(pageLeads, selectedIds, (checked) => {
+          pageLeads.forEach((l) => { if (checked) selectedIds.add(l.id); else selectedIds.delete(l.id); });
+          renderContent();
+        }),
+        ...TRACKING_COLUMNS.map((c) => buildSortableTh(c.label, c.key, state.trackingSort, sortTracking)),
+      ]),
     ]));
     const tbody = create("tbody");
     if (!pageLeads.length) {
-      tbody.appendChild(create("tr", {}, [create("td", { colspan: "11" }, [text("No leads match this filter.")])]));
+      tbody.appendChild(create("tr", {}, [create("td", { colspan: "12" }, [text("No leads match this filter.")])]));
     }
 
     pageLeads.forEach((l) => {
+      const selectTd = buildRowSelectTd(l, selectedIds, (id, checked) => {
+        if (checked) selectedIds.add(id); else selectedIds.delete(id);
+        renderContent();
+      });
       const statusCell = buildStatusSelectCell(l, null);
       const attemptsCell = buildAttemptsCell(l);
 
@@ -1109,6 +1266,7 @@
       const salesPersonSelect = buildSalesPersonCell(l, null);
 
       tbody.appendChild(create("tr", {}, [
+        selectTd,
         create("td", { class: "num" }, [text(l.created_date)]),
         create("td", { class: "phone-cell" }, [buildPhoneCell(l)]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
@@ -1139,7 +1297,10 @@
       nextBtn,
     ]);
 
+    const bulkBar = buildBulkStatusBar(selectedIds);
+
     return create("div", {}, [
+      ...(bulkBar ? [bulkBar] : []),
       create("div", { class: "table-scroll" }, [table]),
       pagination,
     ]);
@@ -1195,28 +1356,65 @@
     ]);
   }
 
-  function buildHomeVisitTable(leads) {
+  const HV_COLUMNS = [
+    { key: "home_visit_date", label: "Home Visit Date", value: (l) => l.home_visit_date || "" },
+    { key: "phone", label: "Phone", value: (l) => cleanPhone(l.phone) },
+    { key: "full_name", label: "Client Name", value: (l) => (l.full_name || "").toLowerCase() },
+    { key: "sales_person", label: "Called by", value: (l) => (l.sales_person || "").toLowerCase() },
+    { key: "status", label: "Status", value: (l) => STATUS_OPTIONS.indexOf(primaryStatus(l)) },
+    { key: "sales_value", label: "Sales Value (Rs)", value: (l) => (l.sales_value === null || l.sales_value === undefined ? -1 : l.sales_value) },
+    { key: "model_name", label: "Model Name", value: (l) => (l.model_name || "").toLowerCase() },
+    { key: "street_address", label: "Street Address", value: (l) => (l.street_address || "").toLowerCase() },
+    { key: "email", label: "Email", value: (l) => (l.email || "").toLowerCase() },
+    { key: "id", label: "Customer ID", value: (l) => l.id },
+  ];
+
+  function sortHV(key) {
+    if (state.hvSort.key === key) {
+      state.hvSort = { key, dir: state.hvSort.dir === "asc" ? "desc" : "asc" };
+    } else {
+      state.hvSort = { key, dir: "asc" };
+    }
+    state.hvTablePage = 1;
+    renderContent();
+  }
+
+  function buildHomeVisitTable(rawLeads) {
+    const leads = sortLeadsBy(rawLeads, HV_COLUMNS, state.hvSort);
     const totalPages = Math.max(1, Math.ceil(leads.length / HV_PAGE_SIZE));
     if (state.hvTablePage > totalPages) state.hvTablePage = totalPages;
     if (state.hvTablePage < 1) state.hvTablePage = 1;
     const start = (state.hvTablePage - 1) * HV_PAGE_SIZE;
     const pageLeads = leads.slice(start, start + HV_PAGE_SIZE);
+    const selectedIds = state.hvSelectedIds;
+    pruneSelection(selectedIds, pageLeads);
 
     const table = create("table", { class: "data-table" });
     table.appendChild(create("thead", {}, [
-      create("tr", {}, ["Home Visit Date", "Phone", "Client Name", "Called by", "Status", "Sales Value (Rs)", "Model Name", "Street Address", "Email", "Customer ID"].map((h) => create("th", {}, [text(h)]))),
+      create("tr", {}, [
+        buildSelectAllTh(pageLeads, selectedIds, (checked) => {
+          pageLeads.forEach((l) => { if (checked) selectedIds.add(l.id); else selectedIds.delete(l.id); });
+          renderContent();
+        }),
+        ...HV_COLUMNS.map((c) => buildSortableTh(c.label, c.key, state.hvSort, sortHV)),
+      ]),
     ]));
     const tbody = create("tbody");
     if (!pageLeads.length) {
-      tbody.appendChild(create("tr", {}, [create("td", { colspan: "10" }, [text("No leads match this filter.")])]));
+      tbody.appendChild(create("tr", {}, [create("td", { colspan: "11" }, [text("No leads match this filter.")])]));
     }
     pageLeads.forEach((l) => {
+      const selectTd = buildRowSelectTd(l, selectedIds, (id, checked) => {
+        if (checked) selectedIds.add(id); else selectedIds.delete(id);
+        renderContent();
+      });
       const dateInput = buildHomeVisitDateCell(l, () => renderContent());
       const statusCell = buildStatusSelectCell(l, () => renderContent());
       const salesPersonSelect = buildSalesPersonCell(l, () => renderContent());
       const salesValueInput = buildSalesValueCell(l, null);
       const modelNameInput = buildModelNameCell(l, null);
       tbody.appendChild(create("tr", {}, [
+        selectTd,
         create("td", {}, [dateInput]),
         create("td", { class: "phone-cell" }, [buildPhoneCell(l)]),
         create("td", { class: "wrap" }, [text(l.full_name)]),
@@ -1245,7 +1443,10 @@
       nextBtn,
     ]);
 
+    const bulkBar = buildBulkStatusBar(selectedIds);
+
     return create("div", {}, [
+      ...(bulkBar ? [bulkBar] : []),
       create("div", { class: "table-scroll" }, [table]),
       pagination,
     ]);
