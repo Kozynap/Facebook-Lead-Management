@@ -50,7 +50,6 @@
     ovStatusFilter: "all",
     dashDateFrom: "",
     dashDateTo: "",
-    unlockedAreas: new Set(),
   };
 
   let chartInstance = null;
@@ -682,20 +681,6 @@
   function renderClientTracking(leads) {
     const content = el("#content");
 
-    if (!state.unlockedAreas.has(state.selectedNav)) {
-      const panel = create("div", { class: "panel" }, [
-        create("h3", {}, [text("FB Leads")]),
-        create("div", { class: "empty-state" }, [
-          create("p", {}, [text("This table contains full client contact details and requires the admin code to view.")]),
-        ]),
-        create("div", { class: "unlock-row" }, [
-          create("button", { class: "btn btn-primary", onclick: unlockFbLeads }, [text("Enter Admin Code")]),
-        ]),
-      ]);
-      content.appendChild(panel);
-      return;
-    }
-
     const downloadBtn = create("button", { class: "btn btn-outline", onclick: openDownloadModal }, [text("Download Excel")]);
 
     const panel = create("div", { class: "panel" }, [
@@ -797,7 +782,7 @@
   function downloadLeadsDetail() {
     openCodeModal({
       title: "Enter Download Code",
-      hint: "Downloading exports every client's full contact details to Excel. This uses a separate code from the one that unlocked viewing - enter the download code to continue.",
+      hint: "Downloading exports every client's full contact details to Excel - enter the download code to continue.",
       onSubmit: async (code) => {
         const res = await fetch("/api/export/leads", {
           method: "POST",
@@ -827,25 +812,6 @@
     });
   }
 
-  function unlockFbLeads() {
-    const area = state.selectedNav;
-    openCodeModal({
-      title: "Enter Admin Code",
-      hint: `The FB Leads table contains full client contact details. Enter the ${area} admin code to view it.`,
-      onSubmit: async (code) => {
-        const res = await fetchJSON("/api/admin/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code, area }),
-        });
-        if (!res.valid) throw new Error("Incorrect code.");
-        state.unlockedAreas.add(area);
-        closeCodeModal();
-        renderContent();
-      },
-    });
-  }
-
   // Shared by every "download code" flow - turns an xlsx response into a
   // saved file, using the server's suggested filename when present.
   async function downloadFileFromResponse(res, fallbackFilename) {
@@ -869,7 +835,7 @@
   function openDownloadModal() {
     openCodeModal({
       title: "Enter Download Code",
-      hint: "Downloading exports every client's full contact details to Excel. This uses a separate code from the one that unlocked viewing - enter the download code to continue.",
+      hint: "Downloading exports every client's full contact details to Excel - enter the download code to continue.",
       onSubmit: async (code) => {
         const res = await fetch("/api/export/tracking", {
           method: "POST",

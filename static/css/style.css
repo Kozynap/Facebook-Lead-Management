@@ -739,8 +739,6 @@ table.data-table td.phone-cell { font-family: var(--font-mono); }
   border: 1px dashed var(--line);
 }
 
-.unlock-row { text-align: center; margin-top: 16px; }
-
 .hidden { display: none !important; }
 
 /* ---------- Home Visit: filter row ---------- */

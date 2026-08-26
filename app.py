@@ -57,31 +57,10 @@ def _load_code(env_name, filename):
     return "changeme"
 
 
-def _view_code():
-    """Code required to view the FB Leads table."""
-    return _load_code("ADMIN_CODE", "admin_code.txt")
-
-
 def _download_code():
-    """Code required to download the FB Leads Excel export - kept
-    separate from the view code so viewing and exporting can be handed
-    to different people."""
+    """Code required to download the FB Leads Excel export. Viewing the
+    FB Leads table itself is not gated - only exporting it."""
     return _load_code("DOWNLOAD_CODE", "download_code.txt")
-
-
-AREA_CODE_CONFIG = {
-    "North Bengal": ("NORTH_AREA_CODE", "area_code_north.txt"),
-    "South Bengal": ("SOUTH_AREA_CODE", "area_code_south.txt"),
-    "North East": ("NE_AREA_CODE", "area_code_ne.txt"),
-}
-
-
-def _area_code(area):
-    """Code required to view FB Leads for one specific area. The shared
-    admin code (_view_code) still works for every area as a master
-    override, on top of that area's own code."""
-    env_name, filename = AREA_CODE_CONFIG[area]
-    return _load_code(env_name, filename)
 
 
 def _status_matches(stored_status, filter_value):
@@ -121,18 +100,6 @@ def api_meta():
         "status_options": db.STATUS_OPTIONS,
         "hv_pipeline_statuses": db.HV_PIPELINE_STATUSES,
     })
-
-
-@app.route("/api/admin/verify", methods=["POST"])
-def api_admin_verify():
-    body = request.get_json(force=True, silent=True) or {}
-    code = body.get("code", "").strip()
-    area = body.get("area")
-    if area in db.AREAS:
-        valid = code == _area_code(area) or code == _view_code()
-    else:
-        valid = code == _view_code()
-    return jsonify({"valid": valid})
 
 
 @app.route("/api/leads")
