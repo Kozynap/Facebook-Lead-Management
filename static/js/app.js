@@ -288,7 +288,7 @@
     const details = create("details", { class: "status-multiselect" });
     const summaryLabel = () => state.selectedSalesPersons.length
       ? state.selectedSalesPersons.map((v) => v || "No One").join(", ")
-      : "All employees";
+      : "All";
     const summaryBody = create("span", { class: "status-summary" }, [text(summaryLabel())]);
     details.appendChild(create("summary", {}, [summaryBody]));
 
