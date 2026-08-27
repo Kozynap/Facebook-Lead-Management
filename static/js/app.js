@@ -36,6 +36,7 @@
     selectedNav: null,
     selectedMonth: "all",
     selectedCampaign: "all",
+    selectedAdName: "all",
     selectedStatuses: [],
     selectedSalesPersons: [],
     searchQuery: "",
@@ -161,6 +162,7 @@
   function selectNav(name) {
     state.selectedNav = name;
     state.selectedCampaign = "all";
+    state.selectedAdName = "all";
     state.selectedStatuses = [];
     state.selectedSalesPersons = [];
     state.searchQuery = "";
@@ -239,6 +241,22 @@
     campaignNames.forEach((name) => campaignSel.appendChild(create("option", { value: name }, [text(name)])));
     campaignSel.value = campaignNames.includes(currentCampaign) || currentCampaign === "all" ? currentCampaign : "all";
     state.selectedCampaign = campaignSel.value;
+
+    // Ad Name options narrow to the selected campaign, if any - so the
+    // dropdown never offers an ad that can't actually show up.
+    const adNames = [...new Set(
+      state.leads
+        .filter((l) => l.area === state.selectedNav && (state.selectedCampaign === "all" || l.campaign_name === state.selectedCampaign))
+        .map((l) => l.ad_name)
+        .filter(Boolean)
+    )].sort((a, b) => a.localeCompare(b));
+    const adNameSel = el("#adNameFilter");
+    const currentAdName = state.selectedAdName;
+    adNameSel.innerHTML = "";
+    adNameSel.appendChild(create("option", { value: "all" }, [text("All ads")]));
+    adNames.forEach((name) => adNameSel.appendChild(create("option", { value: name }, [text(name)])));
+    adNameSel.value = adNames.includes(currentAdName) || currentAdName === "all" ? currentAdName : "all";
+    state.selectedAdName = adNameSel.value;
 
     const statusContainer = el("#statusFilterWidget");
     statusContainer.innerHTML = "";
@@ -323,6 +341,15 @@
       state.selectedCampaign = e.target.value;
       state.hvTablePage = 1;
       state.trackingTablePage = 1;
+      // Ad Name options are scoped to the selected campaign, so refresh
+      // the filter bar (not just content) to keep that list in sync.
+      renderFilters();
+      renderContent();
+    });
+    el("#adNameFilter").addEventListener("change", (e) => {
+      state.selectedAdName = e.target.value;
+      state.hvTablePage = 1;
+      state.trackingTablePage = 1;
       renderContent();
     });
     el("#searchFilter").addEventListener("input", (e) => {
@@ -335,6 +362,7 @@
       e.preventDefault();
       state.selectedMonth = "all";
       state.selectedCampaign = "all";
+      state.selectedAdName = "all";
       state.selectedStatuses = [];
       state.selectedSalesPersons = [];
       state.searchQuery = "";
@@ -368,6 +396,7 @@
       if (l.area !== state.selectedNav) return false;
       if (state.selectedMonth !== "all" && l.created_month !== state.selectedMonth) return false;
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
+      if (state.selectedAdName !== "all" && l.ad_name !== state.selectedAdName) return false;
       if (state.selectedStatuses.length && !hasAnyStatus(l, state.selectedStatuses)) return false;
       if (state.selectedSalesPersons.length && !state.selectedSalesPersons.includes(l.sales_person || "")) return false;
       if (!leadMatchesSearch(l, state.searchQuery)) return false;
@@ -388,6 +417,7 @@
       if (!hasAnyStatus(l, HV_PIPELINE_STATUSES)) return false;
       if (state.selectedMonth !== "all" && l.created_month !== state.selectedMonth) return false;
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
+      if (state.selectedAdName !== "all" && l.ad_name !== state.selectedAdName) return false;
       if (state.selectedSalesPersons.length && !state.selectedSalesPersons.includes(l.sales_person || "")) return false;
       if (!leadMatchesSearch(l, state.searchQuery)) return false;
       return true;
@@ -441,6 +471,7 @@
   function leadsForDashboard() {
     return leadsForArea().filter((l) => {
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
+      if (state.selectedAdName !== "all" && l.ad_name !== state.selectedAdName) return false;
       if (state.selectedStatuses.length && !hasAnyStatus(l, state.selectedStatuses)) return false;
       if (state.selectedSalesPersons.length && !state.selectedSalesPersons.includes(l.sales_person || "")) return false;
       if (!leadMatchesSearch(l, state.searchQuery)) return false;
