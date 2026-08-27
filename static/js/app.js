@@ -37,6 +37,7 @@
     selectedMonth: "all",
     selectedCampaign: "all",
     selectedStatuses: [],
+    selectedSalesPersons: [],
     searchQuery: "",
     selectedSubTab: "dashboard",
     hvStatusFilter: "all",
@@ -161,6 +162,7 @@
     state.selectedNav = name;
     state.selectedCampaign = "all";
     state.selectedStatuses = [];
+    state.selectedSalesPersons = [];
     state.searchQuery = "";
     state.hvStatusFilter = "all";
     state.hvTablePage = 1;
@@ -242,6 +244,10 @@
     statusContainer.innerHTML = "";
     statusContainer.appendChild(buildStatusFilterMultiSelect());
 
+    const salesPersonContainer = el("#salesPersonFilterWidget");
+    salesPersonContainer.innerHTML = "";
+    salesPersonContainer.appendChild(buildSalesPersonFilterMultiSelect());
+
     el("#searchFilter").value = state.searchQuery;
   }
 
@@ -275,6 +281,36 @@
     return details;
   }
 
+  // "Called by" filter - same multi-select pattern as Status, filtering by
+  // employee (or "No One" for leads nobody has picked up yet).
+  function buildSalesPersonFilterMultiSelect() {
+    const options = [{ value: "", label: "No One" }, ...SALES_PERSONS.map((name) => ({ value: name, label: name }))];
+    const details = create("details", { class: "status-multiselect" });
+    const summaryLabel = () => state.selectedSalesPersons.length
+      ? state.selectedSalesPersons.map((v) => v || "No One").join(", ")
+      : "All employees";
+    const summaryBody = create("span", { class: "status-summary" }, [text(summaryLabel())]);
+    details.appendChild(create("summary", {}, [summaryBody]));
+
+    const list = create("div", { class: "status-checklist" });
+    options.forEach((opt) => {
+      const cb = create("input", { type: "checkbox", value: opt.value });
+      cb.checked = state.selectedSalesPersons.includes(opt.value);
+      cb.addEventListener("change", () => {
+        state.selectedSalesPersons = cb.checked
+          ? [...state.selectedSalesPersons, opt.value]
+          : state.selectedSalesPersons.filter((v) => v !== opt.value);
+        summaryBody.textContent = summaryLabel();
+        state.trackingTablePage = 1;
+        renderContent();
+      });
+      list.appendChild(create("label", { class: "status-check-row" }, [cb, text(" " + opt.label)]));
+    });
+    details.appendChild(list);
+
+    return details;
+  }
+
   function setupFilterBar() {
     el("#monthFilter").addEventListener("change", (e) => {
       state.selectedMonth = e.target.value;
@@ -300,6 +336,7 @@
       state.selectedMonth = "all";
       state.selectedCampaign = "all";
       state.selectedStatuses = [];
+      state.selectedSalesPersons = [];
       state.searchQuery = "";
       state.hvTablePage = 1;
       state.trackingTablePage = 1;
@@ -332,6 +369,7 @@
       if (state.selectedMonth !== "all" && l.created_month !== state.selectedMonth) return false;
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
       if (state.selectedStatuses.length && !hasAnyStatus(l, state.selectedStatuses)) return false;
+      if (state.selectedSalesPersons.length && !state.selectedSalesPersons.includes(l.sales_person || "")) return false;
       if (!leadMatchesSearch(l, state.searchQuery)) return false;
       return true;
     });
@@ -350,6 +388,7 @@
       if (!hasAnyStatus(l, HV_PIPELINE_STATUSES)) return false;
       if (state.selectedMonth !== "all" && l.created_month !== state.selectedMonth) return false;
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
+      if (state.selectedSalesPersons.length && !state.selectedSalesPersons.includes(l.sales_person || "")) return false;
       if (!leadMatchesSearch(l, state.searchQuery)) return false;
       return true;
     });
@@ -403,6 +442,7 @@
     return leadsForArea().filter((l) => {
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
       if (state.selectedStatuses.length && !hasAnyStatus(l, state.selectedStatuses)) return false;
+      if (state.selectedSalesPersons.length && !state.selectedSalesPersons.includes(l.sales_person || "")) return false;
       if (!leadMatchesSearch(l, state.searchQuery)) return false;
       if (state.dashDateFrom && l.created_date < state.dashDateFrom) return false;
       if (state.dashDateTo && l.created_date > state.dashDateTo) return false;
@@ -1158,10 +1198,11 @@
     { key: "status", label: "Status", value: (l) => STATUS_OPTIONS.indexOf(primaryStatus(l)) },
     { key: "attempts", label: "Attempts Made", value: (l) => l.attempts },
     { key: "home_visit_date", label: "Home Visit Date", value: (l) => l.home_visit_date || "" },
+    { key: "ad_name", label: "Ad Name", value: (l) => (l.ad_name || "").toLowerCase() },
+    { key: "area", label: "Area", value: (l) => (l.area || "").toLowerCase() },
     { key: "remarks", label: "Remarks", value: (l) => (l.remarks || "").toLowerCase() },
     { key: "street_address", label: "Street Address", value: (l) => (l.street_address || "").toLowerCase() },
     { key: "email", label: "Email", value: (l) => (l.email || "").toLowerCase() },
-    { key: "id", label: "Customer ID", value: (l) => l.id },
   ];
 
   function sortTracking(key) {
@@ -1196,7 +1237,7 @@
     ]));
     const tbody = create("tbody");
     if (!pageLeads.length) {
-      tbody.appendChild(create("tr", {}, [create("td", { colspan: "12" }, [text("No leads match this filter.")])]));
+      tbody.appendChild(create("tr", {}, [create("td", { colspan: "13" }, [text("No leads match this filter.")])]));
     }
 
     pageLeads.forEach((l) => {
@@ -1240,10 +1281,11 @@
         create("td", { class: "wrap" }, [statusCell]),
         attemptsCell,
         create("td", {}, [hvDateInput]),
+        create("td", { class: "wrap" }, [text(l.ad_name)]),
+        create("td", { class: "wrap" }, [text(l.area)]),
         create("td", {}, [remarksInput]),
         create("td", { class: "wrap" }, [text(l.street_address)]),
         create("td", {}, [buildEmailLink(l.email)]),
-        create("td", { class: "id-cell" }, [text(l.id)]),
       ]));
     });
 
@@ -1330,9 +1372,10 @@
     { key: "status", label: "Status", value: (l) => STATUS_OPTIONS.indexOf(primaryStatus(l)) },
     { key: "sales_value", label: "Sales Value (Rs)", value: (l) => (l.sales_value === null || l.sales_value === undefined ? -1 : l.sales_value) },
     { key: "model_name", label: "Model Name", value: (l) => (l.model_name || "").toLowerCase() },
+    { key: "ad_name", label: "Ad Name", value: (l) => (l.ad_name || "").toLowerCase() },
+    { key: "area", label: "Area", value: (l) => (l.area || "").toLowerCase() },
     { key: "street_address", label: "Street Address", value: (l) => (l.street_address || "").toLowerCase() },
     { key: "email", label: "Email", value: (l) => (l.email || "").toLowerCase() },
-    { key: "id", label: "Customer ID", value: (l) => l.id },
   ];
 
   function sortHV(key) {
@@ -1367,7 +1410,7 @@
     ]));
     const tbody = create("tbody");
     if (!pageLeads.length) {
-      tbody.appendChild(create("tr", {}, [create("td", { colspan: "11" }, [text("No leads match this filter.")])]));
+      tbody.appendChild(create("tr", {}, [create("td", { colspan: "12" }, [text("No leads match this filter.")])]));
     }
     pageLeads.forEach((l) => {
       const selectTd = buildRowSelectTd(l, selectedIds, (id, checked) => {
@@ -1388,9 +1431,10 @@
         create("td", { class: "wrap" }, [statusCell]),
         create("td", {}, [salesValueInput]),
         create("td", { class: "wrap" }, [modelNameInput]),
+        create("td", { class: "wrap" }, [text(l.ad_name)]),
+        create("td", { class: "wrap" }, [text(l.area)]),
         create("td", { class: "wrap" }, [text(l.street_address)]),
         create("td", {}, [buildEmailLink(l.email)]),
-        create("td", { class: "id-cell" }, [text(l.id)]),
       ]));
     });
     table.appendChild(tbody);

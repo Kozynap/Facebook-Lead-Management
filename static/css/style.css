@@ -387,7 +387,6 @@ table.data-table th {
   position: sticky;
   top: 0;
 }
-table.data-table tbody tr:nth-child(even) { background: var(--row-tint); }
 table.data-table tbody tr:hover { background: var(--row-hover); }
 table.data-table th.sortable-th { cursor: pointer; user-select: none; }
 table.data-table th.sortable-th:hover { color: var(--rust); }
@@ -415,7 +414,6 @@ table.data-table .select-col input[type="checkbox"] { cursor: pointer; }
   font-size: 13px;
 }
 table.data-table td.wrap { white-space: normal; }
-table.data-table td.id-cell { font-family: var(--font-mono); font-size: 12px; color: var(--subink); }
 table.data-table td.phone-cell { font-family: var(--font-mono); }
 
 .contact-link {
