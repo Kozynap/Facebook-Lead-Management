@@ -15,7 +15,7 @@ DB_PATH = os.path.join(BASE_DIR, "data", "leads.db")
 STATUS_OPTIONS = [
     "New", "Follow up", "Warm",
     "Home Visit Booked", "Home Visit Done", "Home Visit Done and Paid",
-    "Bulk Order", "Cold",
+    "Bulk Order", "Cold", "No Incoming",
 ]
 DEFAULT_STATUS = "New"
 

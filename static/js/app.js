@@ -4,7 +4,7 @@
   const STATUS_OPTIONS = window.STATUS_OPTIONS || [
     "New", "Follow up", "Warm",
     "Home Visit Booked", "Home Visit Done", "Home Visit Done and Paid",
-    "Bulk Order", "Cold",
+    "Bulk Order", "Cold", "No Incoming",
   ];
   const HV_PIPELINE_STATUSES = window.HV_PIPELINE_STATUSES || [
     "Home Visit Booked", "Home Visit Done", "Home Visit Done and Paid",
