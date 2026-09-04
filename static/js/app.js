@@ -950,11 +950,44 @@
     return cleanPhone(phone).replace(/\D/g, "");
   }
 
-  // Starting text for the WhatsApp draft - edit this to change the wording.
+  // Per-area "missed you" WhatsApp draft - contact person, showroom/outlet
+  // address, and Google Maps link differ by area. Edit these to change
+  // the wording or update a contact/address.
+  const WHATSAPP_AREA_TEMPLATES = {
+    "South Bengal": {
+      contact: "Gaurav Sarkar : 7439448309",
+      location: "Kozynap Experience Centre\n2nd Floor, 76B Lake View Road, Kolkata - 700029",
+      mapsUrl: "https://www.google.com/maps/place/Kozynap/@22.5149439,88.3531081,17z/data=!3m1!4b1!4m6!3m5!1s0x3a027791e1d2ac51:0x7e5640b4c1c4c088!8m2!3d22.514939!4d88.355683!16s%2Fg%2F11qh2270g0?authuser=0&entry=ttu&g_ep=EgoyMDI2MDgzMC4wIKXMDSoASAFQAw%3D%3D",
+    },
+    "North Bengal": {
+      contact: "Joydip Dutta : 6293156150743",
+      location: "Kozynap Factory Outlet\nNepali Busty, Farabari, Sahudangi-Ashighar Rd, Binnaguri, West Bengal. Pin 734001",
+      mapsUrl: "https://www.google.com/maps/place/KOZYNAP+Factory+Outlet/@26.7225673,88.4841131,17z/data=!3m1!4b1!4m6!3m5!1s0x39e469a2412af36f:0xcf2e60499c9d17fc!8m2!3d26.7225625!4d88.486688!16s%2Fg%2F11qby0fl3r?entry=ttu&g_ep=EgoyMDI2MDgzMC4wIKXMDSoASAFQAw%3D%3D",
+    },
+    "North East": {
+      contact: "Sarat Bose : 9123341583",
+      location: "Kozynap Experience Centre\n@ HomesToLife, Opposite KFC, Above Patiserie Opera, Lachit Nagar, GS Raod, Near Ulubari Flyover, Guwahati, 781007",
+      mapsUrl: "https://www.google.com/maps/place/HomesToLife+Singapore/@26.1729154,91.757488,17z/data=!3m1!4b1!4m6!3m5!1s0x375a597bec5ae513:0xe061bffc952877f1!8m2!3d26.1729106!4d91.7600629!16s%2Fg%2F11vtbp4b1x?entry=ttu&g_ep=EgoyMDI2MDgzMC4wIKXMDSoASAFQAw%3D%3D",
+    },
+  };
+
   // WhatsApp has no link parameter for attaching a file, so any attachment
   // still has to be added by hand once the chat opens (see conversation).
   function buildWhatsAppMessage(lead) {
-    return `Hi ${lead.full_name || "there"}, this is Kozynap regarding your enquiry.`;
+    const name = lead.full_name || "there";
+    const template = WHATSAPP_AREA_TEMPLATES[lead.area];
+    if (!template) {
+      return `Hi ${name}, this is Kozynap regarding your enquiry.`;
+    }
+    return [
+      `Hello ${name} ji, thank you for showing interest in Kozynap Mattress! 🛏️`,
+      "We tried calling you earlier, but missed you. Whenever you're free, please reach back out to",
+      template.contact,
+      "You can also visit us to test your custom comfort in person:",
+      template.location,
+      "Looking forward to helping you sleep better!",
+      `Google Location of our Experience Centre : ${template.mapsUrl}`,
+    ].join("\n");
   }
 
   function buildWhatsAppLink(lead) {
