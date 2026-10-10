@@ -221,7 +221,8 @@
     // Home Visit tab's membership is driven by status (must be one of the
     // 3 HV pipeline stages) and has its own local status filter for that -
     // the global Status filter would otherwise always show zero results.
-    el("#statusFilterField").classList.toggle("hidden", state.selectedSubTab === "homevisit");
+    // Same for the status-based tabs: their statuses are fixed by the tab.
+    el("#statusFilterField").classList.toggle("hidden", state.selectedSubTab in STATUS_TABS);
 
     const monthSel = el("#monthFilter");
     const currentMonth = state.selectedMonth;
@@ -372,9 +373,28 @@
     });
   }
 
+  // Status-based tabs. A lead lives in exactly one of them, decided by its
+  // primaryStatus() - so the moment its status changes it moves tabs.
+  // (The Home Visit tab keeps its own richer layout, see renderHomeVisitTab.)
+  const STATUS_TABS = {
+    new: { title: "New / Follow up", statuses: ["New", "Follow up"] },
+    warm: { title: "Warm", statuses: ["Warm"] },
+    homevisit: { title: "Home Visit", statuses: HV_PIPELINE_STATUSES },
+    bulk: { title: "Bulk Order", statuses: ["Bulk Order"] },
+    cold: { title: "Cold / No Incoming", statuses: ["Cold", "No Incoming"] },
+  };
+
+  const inStatusTab = (lead, tabKey) => STATUS_TABS[tabKey].statuses.includes(primaryStatus(lead));
+
   function renderSubTabBar() {
+    const areaLeads = state.selectedNav ? leadsForArea() : [];
     document.querySelectorAll("#subTabs .tab-btn").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.subtab === state.selectedSubTab);
+      const key = btn.dataset.subtab;
+      if (btn.dataset.label && key !== "dashboard") {
+        const n = STATUS_TABS[key] ? areaLeads.filter((l) => inStatusTab(l, key)).length : areaLeads.length;
+        btn.textContent = `${btn.dataset.label} (${n})`;
+      }
     });
   }
 
@@ -382,6 +402,8 @@
     document.querySelectorAll("#subTabs .tab-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         state.selectedSubTab = btn.dataset.subtab;
+        state.trackingTablePage = 1;
+        state.hvTablePage = 1;
         renderSubTabBar();
         renderFilters();
         renderContent();
@@ -391,13 +413,16 @@
 
   // ---------- Content ----------
 
-  function leadsForView() {
+  // tabKey: a STATUS_TABS key to restrict to that tab's statuses, or null
+  // for the All Leads tab (which honours the top Status filter instead).
+  function leadsForView(tabKey = null) {
     return state.leads.filter((l) => {
       if (l.area !== state.selectedNav) return false;
+      if (tabKey && !inStatusTab(l, tabKey)) return false;
       if (state.selectedMonth !== "all" && l.created_month !== state.selectedMonth) return false;
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
       if (state.selectedAdName !== "all" && l.ad_name !== state.selectedAdName) return false;
-      if (state.selectedStatuses.length && !hasAnyStatus(l, state.selectedStatuses)) return false;
+      if (!tabKey && state.selectedStatuses.length && !hasAnyStatus(l, state.selectedStatuses)) return false;
       if (state.selectedSalesPersons.length && !state.selectedSalesPersons.includes(l.sales_person || "")) return false;
       if (!leadMatchesSearch(l, state.searchQuery)) return false;
       return true;
@@ -414,7 +439,7 @@
   function leadsForHomeVisit() {
     return state.leads.filter((l) => {
       if (l.area !== state.selectedNav) return false;
-      if (!hasAnyStatus(l, HV_PIPELINE_STATUSES)) return false;
+      if (!inStatusTab(l, "homevisit")) return false;
       if (state.selectedMonth !== "all" && l.created_month !== state.selectedMonth) return false;
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
       if (state.selectedAdName !== "all" && l.ad_name !== state.selectedAdName) return false;
@@ -427,6 +452,7 @@
   function renderContent() {
     const content = el("#content");
     content.querySelectorAll(".panel").forEach((n) => n.remove());
+    renderSubTabBar(); // keeps the per-tab counts in step with status changes
 
     if (state.selectedNav === NAV_MAPPING) {
       el("#emptyState").classList.add("hidden");
@@ -450,10 +476,11 @@
       return;
     }
 
-    if (state.selectedSubTab === "tracking") {
-      const filtered = leadsForView();
+    if (state.selectedSubTab === "tracking" || state.selectedSubTab in STATUS_TABS && state.selectedSubTab !== "homevisit") {
+      const tabKey = state.selectedSubTab === "tracking" ? null : state.selectedSubTab;
+      const filtered = leadsForView(tabKey);
       el("#kpiLeadsInView").textContent = filtered.length;
-      renderClientTracking(filtered);
+      renderClientTracking(filtered, tabKey);
     } else {
       const hvLeads = leadsForHomeVisit();
       el("#kpiLeadsInView").textContent = hvLeads.length;
@@ -749,14 +776,15 @@
 
   // ---------- FB Leads sub-tab ----------
 
-  function renderClientTracking(leads) {
+  function renderClientTracking(leads, tabKey = null) {
     const content = el("#content");
 
-    const downloadBtn = create("button", { class: "btn btn-outline", onclick: openDownloadModal }, [text("Download Excel")]);
+    const exportStatuses = tabKey ? STATUS_TABS[tabKey].statuses : state.selectedStatuses;
+    const downloadBtn = create("button", { class: "btn btn-outline", onclick: () => openDownloadModal(exportStatuses) }, [text("Download Excel")]);
 
     const panel = create("div", { class: "panel" }, [
       create("div", { class: "panel-header-row" }, [
-        create("h3", {}, [text("FB Leads")]),
+        create("h3", {}, [text(tabKey ? STATUS_TABS[tabKey].title : "All Leads")]),
         downloadBtn,
       ]),
       buildTrackingTable(leads),
@@ -903,7 +931,7 @@
     URL.revokeObjectURL(url);
   }
 
-  function openDownloadModal() {
+  function openDownloadModal(statuses) {
     openCodeModal({
       title: "Enter Download Code",
       hint: "Downloading exports every client's full contact details to Excel - enter the download code to continue.",
@@ -916,7 +944,7 @@
             area: state.selectedNav || "",
             month: state.selectedMonth,
             campaign: state.selectedCampaign === "all" ? "" : state.selectedCampaign,
-            status: state.selectedStatuses,
+            status: statuses,
           }),
         });
         await downloadFileFromResponse(res, "fb-leads.xlsx");
@@ -1309,7 +1337,8 @@
         if (checked) selectedIds.add(id); else selectedIds.delete(id);
         renderContent();
       });
-      const statusCell = buildStatusSelectCell(l, null);
+      // Re-render on save so the lead moves straight to its new status tab.
+      const statusCell = buildStatusSelectCell(l, () => renderContent());
       const attemptsCell = buildAttemptsCell(l);
 
       const remarksInput = create("input", { type: "text", class: "remarks-input", value: l.remarks || "", placeholder: "Add a remark…" });
@@ -1381,7 +1410,7 @@
   // ---------- Home Visit sub-tab ----------
 
   function computeHomeVisitKPIs(areaLeads) {
-    const booked = areaLeads.filter((l) => hasStatus(l, "Home Visit Booked") && l.home_visit_date);
+    const booked = areaLeads.filter((l) => primaryStatus(l) === "Home Visit Booked" && l.home_visit_date);
     const today = new Date();
     const todayStr = toDateOnly(today);
     const tomorrow = new Date(today);
@@ -1641,9 +1670,8 @@
 
     const statusCounts = new Map(HV_PIPELINE_STATUSES.map((s) => [s, 0]));
     areaLeads.forEach((l) => {
-      statusList(l).forEach((s) => {
-        if (statusCounts.has(s)) statusCounts.set(s, statusCounts.get(s) + 1);
-      });
+      const s = primaryStatus(l);
+      if (statusCounts.has(s)) statusCounts.set(s, statusCounts.get(s) + 1);
     });
     const statusKpiPanel = create("div", { class: "panel" }, [
       create("h3", {}, [text("Home Visit Status Breakdown")]),
@@ -1653,7 +1681,7 @@
     ]);
     content.appendChild(statusKpiPanel);
 
-    const hvFiltered = leads.filter((l) => state.hvStatusFilter === "all" || hasStatus(l, state.hvStatusFilter));
+    const hvFiltered = leads.filter((l) => state.hvStatusFilter === "all" || primaryStatus(l) === state.hvStatusFilter);
 
     const tablePanel = create("div", { class: "panel" }, [
       create("div", { class: "hv-filter-row" }, [buildHVStatusFilterField()]),
@@ -1662,7 +1690,7 @@
     ]);
     content.appendChild(tablePanel);
 
-    const calendarLeads = areaLeads.filter((l) => l.home_visit_date && hasAnyStatus(l, HV_PIPELINE_STATUSES) && (state.hvStatusFilter === "all" || hasStatus(l, state.hvStatusFilter)));
+    const calendarLeads = areaLeads.filter((l) => l.home_visit_date && inStatusTab(l, "homevisit") && (state.hvStatusFilter === "all" || primaryStatus(l) === state.hvStatusFilter));
     const calendarPanel = create("div", { class: "panel" }, [
       create("h3", {}, [text("Home Visit Calendar")]),
       buildCalendar(calendarLeads),
