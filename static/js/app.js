@@ -377,7 +377,8 @@
   // primaryStatus() - so the moment its status changes it moves tabs.
   // (The Home Visit tab keeps its own richer layout, see renderHomeVisitTab.)
   const STATUS_TABS = {
-    new: { title: "New / Follow up", statuses: ["New", "Follow up"] },
+    new: { title: "New", statuses: ["New"] },
+    followup: { title: "Follow up", statuses: ["Follow up"] },
     warm: { title: "Warm", statuses: ["Warm"] },
     homevisit: { title: "Home Visit", statuses: HV_PIPELINE_STATUSES },
     bulk: { title: "Bulk Order", statuses: ["Bulk Order"] },
