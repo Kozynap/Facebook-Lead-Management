@@ -282,6 +282,19 @@ a { color: inherit; }
   border-bottom-color: var(--rust);
 }
 
+.date-range-inputs { display: flex; align-items: center; gap: 8px; }
+.date-range-inputs span { font-family: var(--font-mono); font-size: 11px; color: var(--subink); }
+.date-range-inputs input[type="date"] {
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink);
+  padding: 4px 2px 8px;
+}
+.date-range-inputs input[type="date"]:focus { outline: none; border-bottom-color: var(--rust); }
+
 .filter-clear {
   font-family: var(--font-mono);
   font-size: 11.5px;

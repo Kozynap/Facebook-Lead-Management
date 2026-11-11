@@ -35,6 +35,8 @@
     campaignMap: [],
     selectedNav: null,
     selectedMonth: "all",
+    dateFrom: "",
+    dateTo: "",
     selectedCampaign: "all",
     selectedAdName: "all",
     selectedStatuses: [],
@@ -166,6 +168,8 @@
     state.selectedStatuses = [];
     state.selectedSalesPersons = [];
     state.searchQuery = "";
+    state.dateFrom = "";
+    state.dateTo = "";
     state.hvStatusFilter = "all";
     state.hvTablePage = 1;
     state.trackingTablePage = 1;
@@ -218,6 +222,9 @@
     // Dashboard uses its own local date-range filter instead (different
     // date dimension question than "which month was this lead created").
     el("#monthFilterField").classList.toggle("hidden", state.selectedSubTab === "dashboard");
+    el("#dateRangeField").classList.toggle("hidden", state.selectedSubTab === "dashboard");
+    el("#dateFromFilter").value = state.dateFrom;
+    el("#dateToFilter").value = state.dateTo;
     // Home Visit tab's membership is driven by status (must be one of the
     // 3 HV pipeline stages) and has its own local status filter for that -
     // the global Status filter would otherwise always show zero results.
@@ -333,6 +340,8 @@
   function setupFilterBar() {
     el("#monthFilter").addEventListener("change", (e) => {
       state.selectedMonth = e.target.value;
+      // Month and date range are alternatives - picking one clears the other.
+      if (state.selectedMonth !== "all") { state.dateFrom = ""; state.dateTo = ""; el("#dateFromFilter").value = ""; el("#dateToFilter").value = ""; }
       state.hvTablePage = 1;
       state.trackingTablePage = 1;
       el("#footerPeriod").textContent = monthLabel(state.selectedMonth);
@@ -347,6 +356,20 @@
       renderFilters();
       renderContent();
     });
+    const onDateChange = () => {
+      state.dateFrom = el("#dateFromFilter").value;
+      state.dateTo = el("#dateToFilter").value;
+      if (state.dateFrom || state.dateTo) {
+        state.selectedMonth = "all";
+        el("#monthFilter").value = "all";
+        el("#footerPeriod").textContent = monthLabel("all");
+      }
+      state.hvTablePage = 1;
+      state.trackingTablePage = 1;
+      renderContent();
+    };
+    el("#dateFromFilter").addEventListener("change", onDateChange);
+    el("#dateToFilter").addEventListener("change", onDateChange);
     el("#adNameFilter").addEventListener("change", (e) => {
       state.selectedAdName = e.target.value;
       state.hvTablePage = 1;
@@ -367,6 +390,8 @@
       state.selectedStatuses = [];
       state.selectedSalesPersons = [];
       state.searchQuery = "";
+      state.dateFrom = "";
+      state.dateTo = "";
       state.hvTablePage = 1;
       state.trackingTablePage = 1;
       render();
@@ -421,6 +446,8 @@
       if (l.area !== state.selectedNav) return false;
       if (tabKey && !inStatusTab(l, tabKey)) return false;
       if (state.selectedMonth !== "all" && l.created_month !== state.selectedMonth) return false;
+      if (state.dateFrom && l.created_date < state.dateFrom) return false;
+      if (state.dateTo && l.created_date > state.dateTo) return false;
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
       if (state.selectedAdName !== "all" && l.ad_name !== state.selectedAdName) return false;
       if (!tabKey && state.selectedStatuses.length && !hasAnyStatus(l, state.selectedStatuses)) return false;
@@ -442,6 +469,8 @@
       if (l.area !== state.selectedNav) return false;
       if (!inStatusTab(l, "homevisit")) return false;
       if (state.selectedMonth !== "all" && l.created_month !== state.selectedMonth) return false;
+      if (state.dateFrom && l.created_date < state.dateFrom) return false;
+      if (state.dateTo && l.created_date > state.dateTo) return false;
       if (state.selectedCampaign !== "all" && l.campaign_name !== state.selectedCampaign) return false;
       if (state.selectedAdName !== "all" && l.ad_name !== state.selectedAdName) return false;
       if (state.selectedSalesPersons.length && !state.selectedSalesPersons.includes(l.sales_person || "")) return false;
@@ -944,6 +973,8 @@
             code,
             area: state.selectedNav || "",
             month: state.selectedMonth,
+            date_from: state.dateFrom,
+            date_to: state.dateTo,
             campaign: state.selectedCampaign === "all" ? "" : state.selectedCampaign,
             status: statuses,
           }),

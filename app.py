@@ -178,6 +178,8 @@ def export_tracking():
 
     area = body.get("area", "")
     month = body.get("month", "all")
+    date_from = body.get("date_from", "")
+    date_to = body.get("date_to", "")
     campaign = body.get("campaign", "")
     statuses = body.get("status") or []
 
@@ -186,6 +188,8 @@ def export_tracking():
         l for l in leads
         if (not area or l["area"] == area)
         and (month == "all" or l["created_month"] == month)
+        and (not date_from or l["created_date"] >= date_from)
+        and (not date_to or l["created_date"] <= date_to)
         and (not campaign or l["campaign_name"] == campaign)
         and (not statuses or any(_status_matches(l["status"], s) for s in statuses))
     ]
